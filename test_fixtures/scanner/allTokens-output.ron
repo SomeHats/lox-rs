@@ -1,0 +1,549 @@
+[
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    0,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: OpenParen,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    2,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: CloseParen,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    4,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: OpenBrace,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    6,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: CloseBrace,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    9,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: Plus,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    11,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: Minus,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    13,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: Star,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    15,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: Slash,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    17,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: Bang,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    19,
+                ),
+                length: SourceOffset(
+                    2,
+                ),
+            },
+            token_type: EqualEqual,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    22,
+                ),
+                length: SourceOffset(
+                    2,
+                ),
+            },
+            token_type: BangEqual,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    25,
+                ),
+                length: SourceOffset(
+                    2,
+                ),
+            },
+            token_type: GreaterEqual,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    28,
+                ),
+                length: SourceOffset(
+                    2,
+                ),
+            },
+            token_type: LessEqual,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    31,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: Comma,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    33,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: Dot,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    35,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: Semicolon,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    37,
+                ),
+                length: SourceOffset(
+                    10,
+                ),
+            },
+            token_type: LineComment,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    48,
+                ),
+                length: SourceOffset(
+                    8,
+                ),
+            },
+            token_type: String(
+                "string",
+            ),
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    57,
+                ),
+                length: SourceOffset(
+                    38,
+                ),
+            },
+            token_type: String(
+                "string with \"escape \n sequences \"",
+            ),
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    96,
+                ),
+                length: SourceOffset(
+                    3,
+                ),
+            },
+            token_type: Number(
+                123.0,
+            ),
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    100,
+                ),
+                length: SourceOffset(
+                    7,
+                ),
+            },
+            token_type: Number(
+                123.456,
+            ),
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    109,
+                ),
+                length: SourceOffset(
+                    2,
+                ),
+            },
+            token_type: If,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    112,
+                ),
+                length: SourceOffset(
+                    4,
+                ),
+            },
+            token_type: Else,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    117,
+                ),
+                length: SourceOffset(
+                    3,
+                ),
+            },
+            token_type: For,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    121,
+                ),
+                length: SourceOffset(
+                    5,
+                ),
+            },
+            token_type: While,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    127,
+                ),
+                length: SourceOffset(
+                    5,
+                ),
+            },
+            token_type: Class,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    133,
+                ),
+                length: SourceOffset(
+                    3,
+                ),
+            },
+            token_type: Fun,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    137,
+                ),
+                length: SourceOffset(
+                    4,
+                ),
+            },
+            token_type: This,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    142,
+                ),
+                length: SourceOffset(
+                    5,
+                ),
+            },
+            token_type: Super,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    148,
+                ),
+                length: SourceOffset(
+                    4,
+                ),
+            },
+            token_type: True,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    153,
+                ),
+                length: SourceOffset(
+                    5,
+                ),
+            },
+            token_type: False,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    159,
+                ),
+                length: SourceOffset(
+                    3,
+                ),
+            },
+            token_type: Nil,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    163,
+                ),
+                length: SourceOffset(
+                    3,
+                ),
+            },
+            token_type: And,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    167,
+                ),
+                length: SourceOffset(
+                    2,
+                ),
+            },
+            token_type: Or,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    170,
+                ),
+                length: SourceOffset(
+                    5,
+                ),
+            },
+            token_type: Print,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    176,
+                ),
+                length: SourceOffset(
+                    6,
+                ),
+            },
+            token_type: Return,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    183,
+                ),
+                length: SourceOffset(
+                    3,
+                ),
+            },
+            token_type: Var,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    188,
+                ),
+                length: SourceOffset(
+                    10,
+                ),
+            },
+            token_type: Identifier(
+                "identifier",
+            ),
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    199,
+                ),
+                length: SourceOffset(
+                    6,
+                ),
+            },
+            token_type: Identifier(
+                "ident2",
+            ),
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    206,
+                ),
+                length: SourceOffset(
+                    7,
+                ),
+            },
+            token_type: Identifier(
+                "ident_3",
+            ),
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    213,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: Eof,
+        },
+    ),
+]

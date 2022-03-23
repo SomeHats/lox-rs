@@ -1,0 +1,80 @@
+[
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    0,
+                ),
+                length: SourceOffset(
+                    27,
+                ),
+            },
+            token_type: String(
+                "bad escape: ->  <- here",
+            ),
+        },
+    ),
+    Err(
+        UnknownEscape {
+            character: '1',
+            at: SourceSpan {
+                offset: SourceOffset(
+                    17,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    29,
+                ),
+                length: SourceOffset(
+                    7,
+                ),
+            },
+            token_type: Identifier(
+                "unknown",
+            ),
+        },
+    ),
+    Err(
+        UnexpectedCharacter {
+            character: ':',
+            at: SourceOffset(
+                37,
+            ),
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    40,
+                ),
+                length: SourceOffset(
+                    13,
+                ),
+            },
+            token_type: String(
+                "unterminated",
+            ),
+        },
+    ),
+    Err(
+        UnterminatedString {
+            at: SourceSpan {
+                offset: SourceOffset(
+                    40,
+                ),
+                length: SourceOffset(
+                    12,
+                ),
+            },
+        },
+    ),
+]

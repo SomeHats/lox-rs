@@ -1,0 +1,21 @@
+( ) { } 
++ - * / !
+== != >= <=
+, . ;
+// comment
+"string"
+"string with \"escape \n sequences \""
+123
+123.456
+
+if else for while
+class fun this super
+true false nil
+and or
+print
+return
+var
+
+identifier
+ident2
+ident_3

@@ -1,0 +1,19 @@
+[package]
+name = "lox-rs"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+derive-new = "0.5.9"
+miette = { version = "4.2.1", features = ["fancy"] }
+pretty_assertions = "1.2.0"
+rustyline = "9.1.2"
+strum = { version = "0.24.0", features = ["derive"] }
+thiserror = "1.0.30"
+
+[profile.release]
+lto = true
+panic = "abort"
+strip = true

@@ -1,0 +1,162 @@
+[
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    0,
+                ),
+                length: SourceOffset(
+                    20,
+                ),
+            },
+            token_type: LineComment,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    21,
+                ),
+                length: SourceOffset(
+                    19,
+                ),
+            },
+            token_type: String(
+                "hello \n world\n+=",
+            ),
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    41,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: Plus,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    43,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: OpenParen,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    44,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: CloseParen,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    46,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: OpenBrace,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    47,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: CloseBrace,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    50,
+                ),
+                length: SourceOffset(
+                    2,
+                ),
+            },
+            token_type: BangEqual,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    53,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: Bang,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    55,
+                ),
+                length: SourceOffset(
+                    2,
+                ),
+            },
+            token_type: LessEqual,
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    58,
+                ),
+                length: SourceOffset(
+                    11,
+                ),
+            },
+            token_type: String(
+                "央ーヽ",
+            ),
+        },
+    ),
+    Ok(
+        Token {
+            span: SourceSpan {
+                offset: SourceOffset(
+                    70,
+                ),
+                length: SourceOffset(
+                    1,
+                ),
+            },
+            token_type: Eof,
+        },
+    ),
+]

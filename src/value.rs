@@ -1,8 +1,8 @@
-use std::fmt::Display;
+use std::{fmt::Display, rc::Rc};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Value {
-    String(String),
+    String(Rc<String>),
     Number(f64),
     Boolean(bool),
     Nil,

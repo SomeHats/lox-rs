@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io::Write, ops::Deref};
+use std::{collections::HashMap, io::Write, rc::Rc};
 
 use crate::{
     ast::*,
@@ -48,7 +48,7 @@ impl Interpreter {
         &mut self,
         program: &Program,
         ctx: &mut Ctx,
-    ) -> Result<RuntimeValue, RuntimeError> {
+    ) -> Result<Value, RuntimeError> {
         let preceding_statements = &program.statements[..program.statements.len() - 1];
         let last_statement = program.statements.last();
 
@@ -66,43 +66,45 @@ impl Interpreter {
         &mut self,
         decl_or_stmt: &DeclOrStmt,
         ctx: &mut Ctx,
-    ) -> Result<RuntimeValue, RuntimeError> {
+    ) -> Result<Value, RuntimeError> {
         match decl_or_stmt {
             DeclOrStmt::Decl(decl) => self.eval_decl(decl),
             DeclOrStmt::Stmt(stmt) => self.eval_stmt(stmt, ctx),
         }
     }
-    fn eval_decl(&mut self, decl: &Decl) -> Result<RuntimeValue, RuntimeError> {
+    fn eval_decl(&mut self, decl: &Decl) -> Result<Value, RuntimeError> {
         match decl {
             Decl::Var(decl) => self.eval_var_decl(decl),
         }
     }
-    fn eval_var_decl(&mut self, decl: &VarDecl) -> Result<RuntimeValue, RuntimeError> {
+    fn eval_var_decl(&mut self, decl: &VarDecl) -> Result<Value, RuntimeError> {
         let initial_value = decl
             .initializer
             .as_ref()
             .map(|expr| self.eval_expr(expr))
             .transpose()?
-            .map(RuntimeValue::into_owned)
             .unwrap_or(Value::Nil);
 
-        Ok(self.environment.define(&decl.identifier, initial_value))
+        Ok(self
+            .environment
+            .define(&decl.identifier, initial_value)
+            .clone())
     }
     fn eval_stmt<Stdout: Write, Ctx: InterpreterContext<Stdout>>(
         &mut self,
         stmt: &Stmt,
         ctx: &mut Ctx,
-    ) -> Result<RuntimeValue, RuntimeError> {
+    ) -> Result<Value, RuntimeError> {
         match stmt {
             Stmt::Expr(stmt) => Ok(self.eval_expr(&stmt.expression)?),
             Stmt::Print(stmt) => {
                 let value = self.eval_expr(&stmt.expression)?;
-                writeln!(ctx.stdout(), "{}", value.as_ref()).unwrap();
+                writeln!(ctx.stdout(), "{}", value).unwrap();
                 Ok(value)
             }
         }
     }
-    pub fn eval_expr(&self, expr: &Expr) -> Result<RuntimeValue, RuntimeError> {
+    pub fn eval_expr(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         match expr {
             Expr::Binary(BinaryExpr {
                 left,
@@ -126,14 +128,14 @@ impl Interpreter {
                     operator_loc: operator.source_span(),
                 };
                 Ok(match operator.inner() {
-                    BinaryOperator::Plus => match left_val.as_ref() {
+                    BinaryOperator::Plus => match left_val {
                         Value::String(left_str) => {
                             let right_str = right_val.cast_string(make_right_err)?;
                             let mut new_str =
                                 String::with_capacity(left_str.len() + right_str.len());
-                            new_str.push_str(left_str);
+                            new_str.push_str(left_str.as_str());
                             new_str.push_str(right_str);
-                            Value::String(new_str).into()
+                            Value::String(Rc::new(new_str)).into()
                         }
                         Value::Number(left_num) => {
                             Value::Number(left_num + right_val.cast_number(make_right_err)?).into()
@@ -155,12 +157,8 @@ impl Interpreter {
                             / right_val.cast_number(make_right_err)?,
                     )
                     .into(),
-                    BinaryOperator::NotEqualTo => {
-                        Value::Boolean(left_val.as_ref() != right_val.as_ref()).into()
-                    }
-                    BinaryOperator::EqualTo => {
-                        Value::Boolean(left_val.as_ref() == right_val.as_ref()).into()
-                    }
+                    BinaryOperator::NotEqualTo => Value::Boolean(left_val != right_val).into(),
+                    BinaryOperator::EqualTo => Value::Boolean(left_val == right_val).into(),
                     BinaryOperator::LessThan => Value::Boolean(
                         left_val.cast_number(make_left_err)?
                             < right_val.cast_number(make_right_err)?,
@@ -204,43 +202,38 @@ impl Interpreter {
             Expr::Literal(LiteralExpr { value, .. }) => Ok(value.clone().into()),
             Expr::Variable(VariableExpr { identifier }) => self
                 .environment
-                .get_ref(identifier)
+                .get(identifier)
+                .map(Clone::clone)
                 .ok_or_else(|| RuntimeError::UndefinedVariable {
                     name: identifier.name.clone(),
                     found_at: identifier.source_span(),
                 }),
+            Expr::Assignment(AssignmentExpr { target, value }) => {
+                let value = self.eval_expr(value)?.to_owned();
+                self.environment
+                    .assign(target, value.to_owned())
+                    .map(Clone::clone)
+                    .ok_or_else(|| RuntimeError::UndefinedVariable {
+                        name: target.name.clone(),
+                        found_at: target.source_span(),
+                    })
+            }
         }
     }
 }
 
-pub enum RuntimeValue<'a> {
-    Owned(Value),
-    Reference(&'a Value),
-}
-impl<'a> RuntimeValue<'a> {
-    fn into_owned(self) -> Value {
-        match self {
-            Self::Owned(value) => value,
-            Self::Reference(value) => value.clone(),
-        }
-    }
-    pub fn as_ref(&self) -> &Value {
-        match self {
-            Self::Owned(value) => value,
-            Self::Reference(value) => *value,
-        }
-    }
+impl Value {
     fn cast_number<F: Fn(ValueType, ValueType) -> RuntimeError>(
         &self,
         make_error: F,
     ) -> Result<f64, RuntimeError> {
-        match self.as_ref() {
+        match self {
             Value::Number(value) => Ok(*value),
             other => Err(make_error(ValueType::Number, other.type_of())),
         }
     }
     fn cast_boolean(&self) -> bool {
-        match self.as_ref() {
+        match self {
             Value::Boolean(val) => *val,
             Value::Nil => false,
             _ => true,
@@ -250,27 +243,10 @@ impl<'a> RuntimeValue<'a> {
         &self,
         make_error: F,
     ) -> Result<&str, RuntimeError> {
-        match self.as_ref() {
+        match self {
             Value::String(string) => Ok(string.as_str()),
             other => Err(make_error(ValueType::String, other.type_of())),
         }
-    }
-}
-impl<'a> From<Value> for RuntimeValue<'a> {
-    fn from(value: Value) -> Self {
-        RuntimeValue::Owned(value)
-    }
-}
-impl<'a> From<&'a Value> for RuntimeValue<'a> {
-    fn from(value: &'a Value) -> Self {
-        RuntimeValue::Reference(value)
-    }
-}
-impl<'a> Deref for RuntimeValue<'a> {
-    type Target = Value;
-
-    fn deref(&self) -> &Self::Target {
-        self.as_ref()
     }
 }
 
@@ -283,16 +259,19 @@ impl Environment {
             values: HashMap::new(),
         }
     }
-    fn define(&mut self, identifier: &Identifier, value: Value) -> RuntimeValue {
+    fn define(&mut self, identifier: &Identifier, value: Value) -> &Value {
         self.values.insert(identifier.name.clone(), value);
-        self.get_ref(identifier).unwrap()
+        self.get(identifier).unwrap()
     }
-    fn get_ref(&self, identifier: &Identifier) -> Option<RuntimeValue> {
-        self.values
-            .get(&identifier.name)
-            .map(RuntimeValue::Reference)
+    fn get(&self, identifier: &Identifier) -> Option<&Value> {
+        self.values.get(&identifier.name)
     }
-    fn get_mut(&mut self, identifier: &Identifier) -> Option<&mut Value> {
-        self.values.get_mut(&identifier.name)
+    fn assign(&mut self, identifier: &Identifier, value: Value) -> Option<&Value> {
+        if let Some(target) = self.values.get_mut(&identifier.name) {
+            *target = value;
+            Some(self.get(identifier).unwrap())
+        } else {
+            None
+        }
     }
 }

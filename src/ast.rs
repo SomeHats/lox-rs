@@ -309,11 +309,31 @@ impl AstNode for VariableExpr {
 }
 
 #[derive(Debug)]
+pub struct AssignmentExpr {
+    pub target: Identifier,
+    pub value: Box<Expr>,
+}
+impl Display for AssignmentExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "(assign {} {})", self.target, self.value)
+    }
+}
+impl AstNode for AssignmentExpr {
+    fn source_span(&self) -> SourceSpan {
+        SourceSpan::range(
+            self.target.source_span().start(),
+            self.value.source_span().end(),
+        )
+    }
+}
+
+#[derive(Debug)]
 pub enum Expr {
     Binary(BinaryExpr),
     Unary(UnaryExpr),
     Literal(LiteralExpr),
     Variable(VariableExpr),
+    Assignment(AssignmentExpr),
 }
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -322,6 +342,7 @@ impl Display for Expr {
             Self::Unary(expr) => Display::fmt(expr, f),
             Self::Literal(expr) => Display::fmt(expr, f),
             Self::Variable(expr) => Display::fmt(expr, f),
+            Self::Assignment(expr) => Display::fmt(expr, f),
         }
     }
 }
@@ -332,6 +353,7 @@ impl AstNode for Expr {
             Self::Unary(expr) => expr.source_span(),
             Self::Literal(expr) => expr.source_span(),
             Self::Variable(expr) => expr.source_span(),
+            Self::Assignment(expr) => expr.source_span(),
         }
     }
 }

@@ -1,5 +1,5 @@
 use miette::{Diagnostic, Result};
-use std::iter::Peekable;
+use std::{iter::Peekable, rc::Rc};
 use thiserror::Error;
 
 use crate::{
@@ -37,6 +37,11 @@ pub enum ParserError {
         expected: TokenTypeName,
         #[label("Found {actual:?} instead of {expected:?}")]
         fount_at: SourceSpan,
+    },
+    #[error("Invalid assignment target")]
+    InvalidAssignmentTarget {
+        #[label("Cannot assign to this expression")]
+        found_at: SourceSpan,
     },
 }
 
@@ -138,7 +143,29 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         })
     }
     fn parse_expr(&mut self) -> Result<Expr, ParserError> {
-        self.parse_equality_expr()
+        self.parse_assignment_expr()
+    }
+    fn parse_assignment_expr(&mut self) -> Result<Expr, ParserError> {
+        fn expr_to_assignment_target(expr: Expr) -> Result<Identifier, ParserError> {
+            match expr {
+                Expr::Variable(var) => Ok(var.identifier),
+                other => Err(ParserError::InvalidAssignmentTarget {
+                    found_at: other.source_span(),
+                }),
+            }
+        }
+
+        let expr = self.parse_equality_expr()?;
+        if self.consume_token(TokenType::Equal).is_some() {
+            let value = self.parse_expr()?;
+            let target = expr_to_assignment_target(expr)?;
+            Ok(Expr::Assignment(AssignmentExpr {
+                target,
+                value: Box::new(value),
+            }))
+        } else {
+            Ok(expr)
+        }
     }
     fn parse_equality_expr(&mut self) -> Result<Expr, ParserError> {
         let mut last_expr = self.parse_comparison_expr()?;
@@ -238,7 +265,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
                     TokenType::True => Value::Boolean(true),
                     TokenType::Nil => Value::Nil,
                     TokenType::Number(number) => Value::Number(*number),
-                    TokenType::String(string) => Value::String(string.clone()),
+                    TokenType::String(string) => Value::String(Rc::new(string.clone())),
                     _ => return None,
                 },
             })

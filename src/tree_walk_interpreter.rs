@@ -28,48 +28,36 @@ pub enum RuntimeError {
     },
 }
 
-pub trait InterpreterContext<Stdout: Write> {
-    fn stdout(&mut self) -> &mut Stdout;
-}
-
-pub struct Interpreter {
+pub struct Interpreter<'a, Stdout: Write> {
     environment: Environment,
+    stdout: &'a mut Stdout,
 }
 
-impl Interpreter {
-    pub fn new() -> Self {
+impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
+    pub fn new(stdout: &'a mut Stdout) -> Self {
         Interpreter {
             environment: Environment::new(),
+            stdout,
         }
     }
-}
-impl Interpreter {
-    pub fn interpret<Stdout: Write, Ctx: InterpreterContext<Stdout>>(
-        &mut self,
-        program: &Program,
-        ctx: &mut Ctx,
-    ) -> Result<Value, RuntimeError> {
-        let preceding_statements = &program.statements[..program.statements.len() - 1];
+    pub fn interpret(&mut self, program: &Program) -> Result<Value, RuntimeError> {
+        let preceding_statements = &program.statements[..program.statements.len().max(1) - 1];
         let last_statement = program.statements.last();
 
         for stmt in preceding_statements {
-            self.eval_decl_or_stmt(stmt, ctx)?;
+            self.eval_decl_or_stmt(stmt)?;
         }
 
         if let Some(stmt) = last_statement {
-            self.eval_decl_or_stmt(stmt, ctx)
+            self.eval_decl_or_stmt(stmt)
         } else {
-            Ok(Value::Nil.into())
+            Ok(Value::Nil)
         }
     }
-    fn eval_decl_or_stmt<Stdout: Write, Ctx: InterpreterContext<Stdout>>(
-        &mut self,
-        decl_or_stmt: &DeclOrStmt,
-        ctx: &mut Ctx,
-    ) -> Result<Value, RuntimeError> {
+    fn eval_decl_or_stmt(&mut self, decl_or_stmt: &DeclOrStmt) -> Result<Value, RuntimeError> {
         match decl_or_stmt {
             DeclOrStmt::Decl(decl) => self.eval_decl(decl),
-            DeclOrStmt::Stmt(stmt) => self.eval_stmt(stmt, ctx),
+            DeclOrStmt::Stmt(stmt) => self.eval_stmt(stmt),
         }
     }
     fn eval_decl(&mut self, decl: &Decl) -> Result<Value, RuntimeError> {
@@ -90,16 +78,12 @@ impl Interpreter {
             .define(&decl.identifier, initial_value)
             .clone())
     }
-    fn eval_stmt<Stdout: Write, Ctx: InterpreterContext<Stdout>>(
-        &mut self,
-        stmt: &Stmt,
-        ctx: &mut Ctx,
-    ) -> Result<Value, RuntimeError> {
+    fn eval_stmt(&mut self, stmt: &Stmt) -> Result<Value, RuntimeError> {
         match stmt {
             Stmt::Expr(stmt) => Ok(self.eval_expr(&stmt.expression)?),
             Stmt::Print(stmt) => {
                 let value = self.eval_expr(&stmt.expression)?;
-                writeln!(ctx.stdout(), "{}", value).unwrap();
+                writeln!(self.stdout, "{}", value).unwrap();
                 Ok(value)
             }
         }
@@ -135,50 +119,43 @@ impl Interpreter {
                                 String::with_capacity(left_str.len() + right_str.len());
                             new_str.push_str(left_str.as_str());
                             new_str.push_str(right_str);
-                            Value::String(Rc::new(new_str)).into()
+                            Value::String(Rc::new(new_str))
                         }
                         Value::Number(left_num) => {
-                            Value::Number(left_num + right_val.cast_number(make_right_err)?).into()
+                            Value::Number(left_num + right_val.cast_number(make_right_err)?)
                         }
                         _ => todo!(),
                     },
                     BinaryOperator::Minus => Value::Number(
                         left_val.cast_number(make_left_err)?
                             - right_val.cast_number(make_right_err)?,
-                    )
-                    .into(),
+                    ),
                     BinaryOperator::Multiply => Value::Number(
                         left_val.cast_number(make_left_err)?
                             * right_val.cast_number(make_right_err)?,
-                    )
-                    .into(),
+                    ),
                     BinaryOperator::Divide => Value::Number(
                         left_val.cast_number(make_left_err)?
                             / right_val.cast_number(make_right_err)?,
-                    )
-                    .into(),
-                    BinaryOperator::NotEqualTo => Value::Boolean(left_val != right_val).into(),
-                    BinaryOperator::EqualTo => Value::Boolean(left_val == right_val).into(),
+                    ),
+                    BinaryOperator::NotEqualTo => Value::Boolean(left_val != right_val),
+                    BinaryOperator::EqualTo => Value::Boolean(left_val == right_val),
                     BinaryOperator::LessThan => Value::Boolean(
                         left_val.cast_number(make_left_err)?
                             < right_val.cast_number(make_right_err)?,
-                    )
-                    .into(),
+                    ),
                     BinaryOperator::LessThanOrEqualTo => Value::Boolean(
                         left_val.cast_number(make_left_err)?
                             <= right_val.cast_number(make_right_err)?,
-                    )
-                    .into(),
+                    ),
                     BinaryOperator::GreaterThan => Value::Boolean(
                         left_val.cast_number(make_left_err)?
                             > right_val.cast_number(make_right_err)?,
-                    )
-                    .into(),
+                    ),
                     BinaryOperator::GreaterThanOrEqualTo => Value::Boolean(
                         left_val.cast_number(make_left_err)?
                             >= right_val.cast_number(make_right_err)?,
-                    )
-                    .into(),
+                    ),
                 })
             }
             Expr::Unary(UnaryExpr { operator, right }) => {
@@ -194,12 +171,11 @@ impl Interpreter {
                                 operator_loc: operator.source_span(),
                             }
                         })?)
-                        .into()
                     }
-                    UnaryOperator::Not => Value::Boolean(!right_val.cast_boolean()).into(),
+                    UnaryOperator::Not => Value::Boolean(!right_val.cast_boolean()),
                 })
             }
-            Expr::Literal(LiteralExpr { value, .. }) => Ok(value.clone().into()),
+            Expr::Literal(LiteralExpr { value, .. }) => Ok(value.clone()),
             Expr::Variable(VariableExpr { identifier }) => self
                 .environment
                 .get(identifier)
@@ -209,9 +185,9 @@ impl Interpreter {
                     found_at: identifier.source_span(),
                 }),
             Expr::Assignment(AssignmentExpr { target, value }) => {
-                let value = self.eval_expr(value)?.to_owned();
+                let value = self.eval_expr(value)?;
                 self.environment
-                    .assign(target, value.to_owned())
+                    .assign(target, value)
                     .map(Clone::clone)
                     .ok_or_else(|| RuntimeError::UndefinedVariable {
                         name: target.name.clone(),

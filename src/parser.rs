@@ -50,6 +50,7 @@ pub struct Parser<Stream: Iterator<Item = Token>> {
     current_token: Option<Token>,
     at_end: bool,
     recovered_errors: Vec<ParserError>,
+    decl_count: usize,
 }
 
 impl<Stream: Iterator<Item = Token>> Parser<Stream> {
@@ -64,6 +65,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
             current_token: None,
             at_end: false,
             recovered_errors: Vec::new(),
+            decl_count: 0,
         }
     }
     fn parse_program(&mut self) -> Program {
@@ -81,6 +83,10 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
                     self.synchronize();
                     self.recovered_errors.push(err);
                 }
+            }
+            self.decl_count += 1;
+            if self.decl_count == 26 {
+                dbg!(&self.decl_count);
             }
         }
         Program { statements }

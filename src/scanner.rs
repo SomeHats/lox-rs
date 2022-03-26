@@ -207,8 +207,11 @@ impl<'a> Iterator for Scanner<'a> {
             Some('/') => {
                 // line comments
                 if self.peek(1) == Some('/') {
-                    while self.peek(1) != Some('\n') {
-                        self.advance();
+                    loop {
+                        match self.peek(1) {
+                            Some('\n') | None => break,
+                            _ => self.advance(),
+                        };
                     }
                     Ok(self.yield_token(TokenType::LineComment))
                 } else {

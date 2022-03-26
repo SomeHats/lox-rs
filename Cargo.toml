@@ -7,11 +7,22 @@ edition = "2018"
 
 [dependencies]
 derive-new = "0.5.9"
+lazy_static = "1.4.0"
 miette = { version = "4.2.1", features = ["fancy"] }
 pretty_assertions = "1.2.0"
+regex = "1.5.5"
 rustyline = "9.1.2"
 strum = { version = "0.24.0", features = ["derive"] }
 thiserror = "1.0.30"
+
+[dev-dependencies]
+colored = "2.0.0"
+libtest-mimic = "0.3.0"
+
+[[test]]
+name = "tests"
+path = "tests/main.rs"
+harness = false
 
 [profile.release]
 lto = true

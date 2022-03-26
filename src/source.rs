@@ -3,6 +3,12 @@ use std::ops::{Range, RangeInclusive};
 #[derive(Debug, Clone, Copy)]
 pub struct SourceOffset(usize);
 
+impl SourceOffset {
+    pub fn byte_offset(&self) -> usize {
+        self.0
+    }
+}
+
 impl From<usize> for SourceOffset {
     fn from(offset: usize) -> Self {
         Self(offset)
@@ -39,6 +45,9 @@ pub struct SourceSpan {
 impl SourceSpan {
     pub fn new(offset: SourceOffset, length: SourceOffset) -> Self {
         Self { offset, length }
+    }
+    pub fn len(&self) -> SourceOffset {
+        self.length
     }
     pub fn range(start: SourceOffset, end: SourceOffset) -> Self {
         Self {

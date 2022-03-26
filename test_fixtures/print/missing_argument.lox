@@ -1,0 +1,2 @@
+// ParserError: UnexpectedExpressionToken found Semicolon at l2c6
+print;

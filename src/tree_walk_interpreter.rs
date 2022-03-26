@@ -3,7 +3,7 @@ use std::{collections::HashMap, io::Write, rc::Rc};
 use crate::{
     ast::*,
     source::SourceSpan,
-    value::{Value, ValueType},
+    value::{Value, ValueDescriptor, ValueType},
 };
 use miette::{Diagnostic, Result};
 use thiserror::Error;
@@ -12,7 +12,7 @@ use thiserror::Error;
 pub enum RuntimeError {
     #[error("Operand must be {}, but found {}", .expected_type.fmt_a(), .actual_type.fmt_a())]
     OperandTypeError {
-        expected_type: ValueType,
+        expected_type: ValueDescriptor,
         actual_type: ValueType,
         #[label("{} was found here", .actual_type.fmt_a())]
         operand_loc: SourceSpan,
@@ -97,20 +97,22 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
             }) => {
                 let left_val = self.eval_expr(left)?;
                 let right_val = self.eval_expr(right)?;
-                let make_left_err = |expected, actual| RuntimeError::OperandTypeError {
-                    expected_type: expected,
-                    actual_type: actual,
-                    operand_loc: left.source_span(),
-                    operator: operator.to_string(),
-                    operator_loc: operator.source_span(),
-                };
-                let make_right_err = |expected, actual| RuntimeError::OperandTypeError {
-                    expected_type: expected,
-                    actual_type: actual,
-                    operand_loc: right.source_span(),
-                    operator: operator.to_string(),
-                    operator_loc: operator.source_span(),
-                };
+                let make_left_err =
+                    |expected: ValueDescriptor, actual: ValueType| RuntimeError::OperandTypeError {
+                        expected_type: expected,
+                        actual_type: actual,
+                        operand_loc: left.source_span(),
+                        operator: operator.to_string(),
+                        operator_loc: operator.source_span(),
+                    };
+                let make_right_err =
+                    |expected: ValueDescriptor, actual: ValueType| RuntimeError::OperandTypeError {
+                        expected_type: expected,
+                        actual_type: actual,
+                        operand_loc: right.source_span(),
+                        operator: operator.to_string(),
+                        operator_loc: operator.source_span(),
+                    };
                 Ok(match operator.inner() {
                     BinaryOperator::Plus => match left_val {
                         Value::String(left_str) => {
@@ -124,7 +126,12 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                         Value::Number(left_num) => {
                             Value::Number(left_num + right_val.cast_number(make_right_err)?)
                         }
-                        _ => todo!(),
+                        value => {
+                            return Err(make_left_err(
+                                ValueDescriptor::AnyOf(vec![ValueType::String, ValueType::Number]),
+                                value.type_of(),
+                            ))
+                        }
                     },
                     BinaryOperator::Minus => Value::Number(
                         left_val.cast_number(make_left_err)?
@@ -199,13 +206,13 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
 }
 
 impl Value {
-    fn cast_number<F: Fn(ValueType, ValueType) -> RuntimeError>(
+    fn cast_number<F: Fn(ValueDescriptor, ValueType) -> RuntimeError>(
         &self,
         make_error: F,
     ) -> Result<f64, RuntimeError> {
         match self {
             Value::Number(value) => Ok(*value),
-            other => Err(make_error(ValueType::Number, other.type_of())),
+            other => Err(make_error(ValueType::Number.into(), other.type_of())),
         }
     }
     fn cast_boolean(&self) -> bool {
@@ -215,13 +222,13 @@ impl Value {
             _ => true,
         }
     }
-    fn cast_string<F: Fn(ValueType, ValueType) -> RuntimeError>(
+    fn cast_string<F: Fn(ValueDescriptor, ValueType) -> RuntimeError>(
         &self,
         make_error: F,
     ) -> Result<&str, RuntimeError> {
         match self {
             Value::String(string) => Ok(string.as_str()),
-            other => Err(make_error(ValueType::String, other.type_of())),
+            other => Err(make_error(ValueType::String.into(), other.type_of())),
         }
     }
 }

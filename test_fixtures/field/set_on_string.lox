@@ -1,0 +1,1 @@
+"str".foo = "value"; // RuntimeError: Only instances have fields.

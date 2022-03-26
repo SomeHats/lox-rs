@@ -1,0 +1,3 @@
+{
+  print notDefined;  // RuntimeError: Undefined variable 'notDefined'.
+}

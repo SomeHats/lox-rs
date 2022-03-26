@@ -1,0 +1,1 @@
+123.foo = "value"; // RuntimeError: Only instances have fields.

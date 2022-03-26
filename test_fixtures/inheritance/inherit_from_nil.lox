@@ -1,0 +1,2 @@
+var Nil = nil;
+class Foo < Nil {} // RuntimeError: Superclass must be a class.

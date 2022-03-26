@@ -1,0 +1,2 @@
+var a = "a";
+!a = "value"; // ParserError: InvalidAssignmentTarget from l2c1 to l2c3

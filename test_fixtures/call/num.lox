@@ -1,0 +1,1 @@
+123(); // RuntimeError: Can only call functions and classes.

@@ -1,0 +1,1 @@
+nil + nil; // RuntimeError: Operator + at l1c5 expected a string or a number got nil from l1c1 to l1c4

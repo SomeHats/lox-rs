@@ -36,7 +36,7 @@ pub enum ParserError {
         actual: TokenTypeName,
         expected: TokenTypeName,
         #[label("Found {actual:?} instead of {expected:?}")]
-        fount_at: SourceSpan,
+        found_at: SourceSpan,
     },
     #[error("Invalid assignment target")]
     InvalidAssignmentTarget {
@@ -59,15 +59,19 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         let program = parser.parse_program();
         (program, parser.recovered_errors)
     }
-    fn new(token_stream: Stream) -> Self {
+    fn new(token_stream: Stream) -> Parser<impl Iterator<Item = Token>> {
         Parser {
-            token_stream: token_stream.peekable(),
+            token_stream: token_stream
+                .filter(|token| token.token_type != TokenType::LineComment)
+                .peekable(),
             current_token: None,
             at_end: false,
             recovered_errors: Vec::new(),
             decl_count: 0,
         }
     }
+}
+impl<Stream: Iterator<Item = Token>> Parser<Stream> {
     fn parse_program(&mut self) -> Program {
         let mut statements = Vec::new();
         while !matches!(
@@ -256,7 +260,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         }) {
             Ok(Expr::Unary(UnaryExpr {
                 operator,
-                right: Box::new(self.parse_primary_expr()?),
+                right: Box::new(self.parse_unary_expr()?),
             }))
         } else {
             self.parse_primary_expr()
@@ -327,7 +331,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
                 other => Err(ParserError::UnexpectedToken {
                     actual: other.into(),
                     expected: TokenTypeName::Identifier,
-                    fount_at: next.span,
+                    found_at: next.span,
                 }),
             }
         };

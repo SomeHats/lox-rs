@@ -1,0 +1,1 @@
+true + 123; // RuntimeError: Operator + at l1c6 expected a string or a number got a boolean from l1c1 to l1c5

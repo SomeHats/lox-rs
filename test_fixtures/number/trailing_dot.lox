@@ -1,0 +1,2 @@
+// ParserError: ExpectedSemicolon found Dot at l2c4
+123.;

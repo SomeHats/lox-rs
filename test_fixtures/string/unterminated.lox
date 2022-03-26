@@ -1,0 +1,3 @@
+// ScannerError: UnterminatedString from l3c1 to l3c31
+// ParserError: ExpectedSemicolon found String from l3c1 to l3c31
+"this string has no close quote

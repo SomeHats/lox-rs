@@ -1,0 +1,2 @@
+// ParserError: UnexpectedExpressionToken found Dot at l2c1
+.123;

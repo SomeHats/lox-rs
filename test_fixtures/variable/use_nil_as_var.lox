@@ -1,2 +1,2 @@
-// [line 2] Error at 'nil': Expect variable name.
+// ParserError: UnexpectedToken found Nil from l2c5 to l2c8 expected Identifier
 var nil = "value";

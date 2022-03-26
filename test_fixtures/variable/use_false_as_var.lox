@@ -1,2 +1,2 @@
-// [line 2] Error at 'false': Expect variable name.
+// ParserError: UnexpectedToken found False from l2c5 to l2c10 expected Identifier
 var false = "value";

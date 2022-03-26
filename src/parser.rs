@@ -50,7 +50,6 @@ pub struct Parser<Stream: Iterator<Item = Token>> {
     current_token: Option<Token>,
     at_end: bool,
     recovered_errors: Vec<ParserError>,
-    decl_count: usize,
 }
 
 impl<Stream: Iterator<Item = Token>> Parser<Stream> {
@@ -67,7 +66,6 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
             current_token: None,
             at_end: false,
             recovered_errors: Vec::new(),
-            decl_count: 0,
         }
     }
 }
@@ -87,10 +85,6 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
                     self.synchronize();
                     self.recovered_errors.push(err);
                 }
-            }
-            self.decl_count += 1;
-            if self.decl_count == 26 {
-                dbg!(&self.decl_count);
             }
         }
         Program { statements }
@@ -123,10 +117,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         })
     }
     fn parse_stmt(&mut self) -> Result<Stmt, ParserError> {
-        if let Some(print_span) = self.consume_match(|token| match token.token_type {
-            TokenType::Print => Some(token.span),
-            _ => None,
-        }) {
+        if let Some(print_span) = self.consume_token_to_span(TokenType::Print) {
             let expression = self.parse_expr()?;
             self.consume_token_or_error(TokenType::Semicolon, |token| {
                 ParserError::ExpectedSemicolor {
@@ -138,6 +129,21 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
                 expression,
                 print_span,
             }));
+        }
+
+        if let Some(open_span) = self.consume_token_to_span(TokenType::OpenBrace) {
+            let mut statements = Vec::new();
+            loop {
+                if let Some(close_span) = self.consume_token_to_span(TokenType::CloseBrace) {
+                    return Ok(Stmt::Block(BlockStmt {
+                        statements,
+                        open_span,
+                        close_span,
+                    }));
+                } else {
+                    statements.push(self.parse_decl_or_stmt()?);
+                }
+            }
         }
 
         let expression = self.parse_expr()?;
@@ -295,10 +301,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
             return Ok(Expr::Variable(VariableExpr { identifier }));
         }
 
-        if let Some(opening_span) = self.consume_match(|token| match token.token_type {
-            TokenType::OpenParen => Some(token.span),
-            _ => None,
-        }) {
+        if let Some(opening_span) = self.consume_token_to_span(TokenType::OpenParen) {
             let expr = self.parse_expr()?;
             self.consume_token_or_error(TokenType::CloseParen, |tok| {
                 ParserError::UnmatchedParenthesis {
@@ -307,7 +310,9 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
                     opener: opening_span,
                 }
             })?;
-            return Ok(expr);
+            return Ok(Expr::Grouping(GroupingExpr {
+                expr: Box::new(expr),
+            }));
         }
 
         let unknown_tok = self
@@ -404,6 +409,9 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
             }
             Some(_) | None => None,
         }
+    }
+    fn consume_token_to_span(&mut self, token_type: TokenType) -> Option<SourceSpan> {
+        self.consume_token(token_type).map(|token| token.span)
     }
     fn consume_token_or_error<F: Fn(&Token) -> ParserError>(
         &mut self,

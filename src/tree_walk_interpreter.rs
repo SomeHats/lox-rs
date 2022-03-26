@@ -6,6 +6,7 @@ use crate::{
     value::{Value, ValueDescriptor, ValueType},
 };
 use miette::{Diagnostic, Result};
+use replace_with::replace_with_or_default;
 use thiserror::Error;
 
 #[derive(Error, Diagnostic, Debug)]
@@ -26,6 +27,12 @@ pub enum RuntimeError {
         #[label("found here")]
         found_at: SourceSpan,
     },
+    #[error("Already a variable named {name} in this scope")]
+    AlreadyDefinedVariable {
+        name: String,
+        #[label("'{name}' here is already a variable")]
+        found_at: SourceSpan,
+    },
 }
 
 pub struct Interpreter<'a, Stdout: Write> {
@@ -41,18 +48,9 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
         }
     }
     pub fn interpret(&mut self, program: &Program) -> Result<Value, RuntimeError> {
-        let preceding_statements = &program.statements[..program.statements.len().max(1) - 1];
-        let last_statement = program.statements.last();
-
-        for stmt in preceding_statements {
-            self.eval_decl_or_stmt(stmt)?;
-        }
-
-        if let Some(stmt) = last_statement {
+        try_for_each_and_return_last(&program.statements, Value::Nil, |stmt| {
             self.eval_decl_or_stmt(stmt)
-        } else {
-            Ok(Value::Nil)
-        }
+        })
     }
     fn eval_decl_or_stmt(&mut self, decl_or_stmt: &DeclOrStmt) -> Result<Value, RuntimeError> {
         match decl_or_stmt {
@@ -76,16 +74,25 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
         Ok(self
             .environment
             .define(&decl.identifier, initial_value)
+            .map_err(|_| RuntimeError::AlreadyDefinedVariable {
+                name: decl.identifier.name.clone(),
+                found_at: decl.identifier.source_span(),
+            })?
             .clone())
     }
     fn eval_stmt(&mut self, stmt: &Stmt) -> Result<Value, RuntimeError> {
         match stmt {
-            Stmt::Expr(stmt) => Ok(self.eval_expr(&stmt.expression)?),
+            Stmt::Expr(stmt) => self.eval_expr(&stmt.expression),
             Stmt::Print(stmt) => {
                 let value = self.eval_expr(&stmt.expression)?;
                 writeln!(self.stdout, "{}", value).unwrap();
                 Ok(value)
             }
+            Stmt::Block(stmt) => self.run_with_new_child_environment(|this| {
+                try_for_each_and_return_last(&stmt.statements, Value::Nil, |stmt| {
+                    this.eval_decl_or_stmt(stmt)
+                })
+            }),
         }
     }
     pub fn eval_expr(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
@@ -191,6 +198,7 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                     name: identifier.name.clone(),
                     found_at: identifier.source_span(),
                 }),
+            Expr::Grouping(GroupingExpr { expr }) => self.eval_expr(expr),
             Expr::Assignment(AssignmentExpr { target, value }) => {
                 let value = self.eval_expr(value)?;
                 self.environment
@@ -202,6 +210,18 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                     })
             }
         }
+    }
+    fn run_with_new_child_environment<T, F: Fn(&mut Self) -> T>(&mut self, run: F) -> T {
+        replace_with_or_default(&mut self.environment, |old_env| {
+            Environment::new_with_parent(old_env)
+        });
+        let result = run(self);
+        replace_with_or_default(&mut self.environment, |old_env| {
+            *old_env
+                .parent
+                .expect("popped environment more times than pushed")
+        });
+        result
     }
 }
 
@@ -233,28 +253,68 @@ impl Value {
     }
 }
 
+#[derive(Debug, Default)]
+
 struct Environment {
     values: HashMap<String, Value>,
+    parent: Option<Box<Environment>>,
 }
 impl Environment {
     fn new() -> Self {
         Self {
             values: HashMap::new(),
+            parent: None,
         }
     }
-    fn define(&mut self, identifier: &Identifier, value: Value) -> &Value {
-        self.values.insert(identifier.name.clone(), value);
-        self.get(identifier).unwrap()
+    fn new_with_parent(parent: Self) -> Self {
+        Environment {
+            parent: Some(Box::new(parent)),
+            ..Default::default()
+        }
+    }
+    fn is_global(&self) -> bool {
+        self.parent.is_none()
+    }
+    fn is_local(&self) -> bool {
+        !self.is_global()
+    }
+    fn define(&mut self, identifier: &Identifier, value: Value) -> Result<&Value, ()> {
+        if self.values.contains_key(&identifier.name) && self.is_local() {
+            Err(())
+        } else {
+            self.values.insert(identifier.name.clone(), value);
+            Ok(self.get(identifier).unwrap())
+        }
     }
     fn get(&self, identifier: &Identifier) -> Option<&Value> {
-        self.values.get(&identifier.name)
+        self.values.get(&identifier.name).or_else(|| {
+            self.parent
+                .as_ref()
+                .and_then(|parent| parent.get(identifier))
+        })
     }
     fn assign(&mut self, identifier: &Identifier, value: Value) -> Option<&Value> {
         if let Some(target) = self.values.get_mut(&identifier.name) {
             *target = value;
             Some(self.get(identifier).unwrap())
+        } else if let Some(parent) = &mut self.parent {
+            parent.assign(identifier, value)
         } else {
             None
         }
+    }
+}
+
+fn try_for_each_and_return_last<In, Out, Err, F: FnMut(&In) -> Result<Out, Err>>(
+    items: &[In],
+    default: Out,
+    mut run: F,
+) -> Result<Out, Err> {
+    for item in &items[..items.len().max(1) - 1] {
+        run(item)?;
+    }
+    match items.last() {
+        Some(item) => run(item),
+        None => Ok(default),
     }
 }

@@ -43,7 +43,7 @@ impl Debug for Value {
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::String(string) => f.write_str(&string),
+            Self::String(string) => f.write_str(string),
             Self::Number(n) => write!(f, "{}", n),
             Self::Boolean(b) => match b {
                 true => f.write_str("true"),

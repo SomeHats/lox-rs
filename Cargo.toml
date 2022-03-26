@@ -12,6 +12,7 @@ lazy_static = "1.4.0"
 miette = { version = "4.2.1", features = ["fancy"] }
 pretty_assertions = "1.2.0"
 regex = "1.5.5"
+replace_with = "0.1.7"
 rustyline = "9.1.2"
 strum = { version = "0.24.0", features = ["derive"] }
 thiserror = "1.0.30"

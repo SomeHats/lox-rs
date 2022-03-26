@@ -2,7 +2,7 @@ use std::{
     collections::VecDeque,
     fs::{self},
     io::Write,
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use colored::Colorize;
@@ -12,11 +12,11 @@ use libtest_mimic::{self, run_tests, Arguments, Outcome, Test};
 use lox_rs::{
     Interpreter, Parser, ParserError, RuntimeError, Scanner, ScannerError, SourceOffset, SourceSpan,
 };
-use miette::{miette, IntoDiagnostic, NamedSource, Report, Result};
+use miette::{miette, IntoDiagnostic, Result};
 use regex::Regex;
 
 lazy_static! {
-    static ref IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((benchmark|call|class|closure|constructor|expressions|field|for|function|if|inheritance|limit|method|regression|return|super|this|while|block|variable)/|(operator/(not_class|not|equals_class|equals_method)|assignment/(local|to_this)|logical_operator/(or_truth|and_truth|or|and)).lox)").unwrap();
+    static ref IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((benchmark|call|class|closure|constructor|field|for|function|if|inheritance|limit|method|regression|return|super|this|while)/|(block/empty|variable/(early_bound|local_from_method|duplicate_parameter|use_this_as_var|unreached_undefined|collide_with_parameter|use_local_in_initializer)|operator/(not_class|not|equals_class|equals_method)|assignment/to_this|logical_operator/(or_truth|and_truth|or|and)).lox)").unwrap();
 }
 
 fn main() {
@@ -53,7 +53,7 @@ lazy_static! {
     static ref RUNTIME_ERROR_RE: Regex = Regex::new("// RuntimeError: (.*)\n?").unwrap();
 }
 
-fn run_test(path: &PathBuf) -> Result<Outcome> {
+fn run_test(path: &Path) -> Result<Outcome> {
     let test_source = fs::read_to_string(path).into_diagnostic()?;
 
     let expected_output = EXPECTED_OUTPUT_RE
@@ -70,7 +70,7 @@ fn run_test(path: &PathBuf) -> Result<Outcome> {
         .captures_iter(&test_source)
         .map(|captures| format!("RuntimeError: {}", &captures[1]))
         .at_most_one()
-        .map_err(|err| miette!("should have at most one expected runtime error"))?;
+        .map_err(|_| miette!("should have at most one expected runtime error"))?;
 
     let mut scanner_errors = Vec::new();
     let token_stream = Scanner::new(&test_source).filter_map(|token_or_err| match token_or_err {
@@ -85,7 +85,7 @@ fn run_test(path: &PathBuf) -> Result<Outcome> {
     for scanner_error in scanner_errors {
         match match_errors(
             scanner_error,
-            expected_parser_errors.pop_front(),
+            &expected_parser_errors.pop_front(),
             &test_source,
         ) {
             Ok(_) => continue,
@@ -96,7 +96,7 @@ fn run_test(path: &PathBuf) -> Result<Outcome> {
     for parser_error in parser_errors {
         match match_errors(
             parser_error,
-            expected_parser_errors.pop_front(),
+            &expected_parser_errors.pop_front(),
             &test_source,
         ) {
             Ok(_) => continue,
@@ -104,7 +104,7 @@ fn run_test(path: &PathBuf) -> Result<Outcome> {
         }
     }
 
-    if expected_parser_errors.len() > 0 {
+    if !expected_parser_errors.is_empty() {
         return Ok(Outcome::Failed {
             msg: Some(format!(
                 "Expected errors:\n{}",
@@ -119,9 +119,13 @@ fn run_test(path: &PathBuf) -> Result<Outcome> {
     let mut output_writer = StringWriter::new();
     let mut interpreter = Interpreter::new(&mut output_writer);
     if let Err(err) = interpreter.interpret(&program) {
-        if let Err(err) = match_errors(err, expected_runtime_error, &test_source) {
+        if let Err(err) = match_errors(err, &expected_runtime_error, &test_source) {
             return Ok(Outcome::Failed { msg: Some(err) });
         }
+    } else if let Some(expected_err) = &expected_runtime_error {
+        return Ok(Outcome::Failed {
+            msg: Some(format!("Expected runtime error:\n{}", expected_err)),
+        });
     }
 
     let actual_output: String = output_writer.into();
@@ -134,7 +138,7 @@ fn run_test(path: &PathBuf) -> Result<Outcome> {
 
 fn match_errors<E: FmtError>(
     actual_error: E,
-    expected_error: Option<String>,
+    expected_error: &Option<String>,
     source: &str,
 ) -> Result<(), String> {
     let actual_str = actual_error.fmt_error(source);
@@ -153,7 +157,7 @@ fn compare_outputs(expected_lines: Vec<String>, actual_lines: Vec<String>) -> Ou
     const ACTUAL: &str = "actual";
     const NONE: &str = "<None>";
 
-    fn max_len(lines: &Vec<String>, label: &str) -> usize {
+    fn max_len(lines: &[String], label: &str) -> usize {
         lines
             .iter()
             .map(|line| line.len())
@@ -195,10 +199,10 @@ fn compare_outputs(expected_lines: Vec<String>, actual_lines: Vec<String>) -> Ou
             colorify(result_char),
             expected_line
                 .map(|line| colorify(line))
-                .unwrap_or(NONE.dimmed()),
+                .unwrap_or_else(|| NONE.dimmed()),
             actual_line
                 .map(|line| colorify(line))
-                .unwrap_or(NONE.dimmed()),
+                .unwrap_or_else(|| NONE.dimmed()),
         );
         output_str.push_str(result_str);
         output_str.push('\n');
@@ -345,6 +349,11 @@ impl FmtError for RuntimeError {
                 "RuntimeError: undefined variable {} {}",
                 name,
                 format_span(found_at, source)
+            ),
+            RuntimeError::AlreadyDefinedVariable { name, found_at } => format!(
+                "RuntimeError: {} AlreadyDefinedVariable {}",
+                format_span(found_at, source),
+                name,
             ),
         }
     }

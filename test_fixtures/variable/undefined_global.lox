@@ -1,1 +1,1 @@
-print notDefined;  // RuntimeError: Undefined variable 'notDefined'.
+print notDefined;  // RuntimeError: undefined variable notDefined from l1c7 to l1c17

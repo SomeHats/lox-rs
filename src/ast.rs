@@ -173,15 +173,38 @@ impl AstNode for PrintStmt {
 }
 
 #[derive(Debug)]
+pub struct BlockStmt {
+    pub statements: Vec<DeclOrStmt>,
+    pub open_span: SourceSpan,
+    pub close_span: SourceSpan,
+}
+impl Display for BlockStmt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("(do ")?;
+        for stmt in self.statements.iter() {
+            write!(f, "{} ", stmt)?;
+        }
+        f.write_str(")")
+    }
+}
+impl AstNode for BlockStmt {
+    fn source_span(&self) -> SourceSpan {
+        SourceSpan::range(self.open_span.start(), self.close_span.end())
+    }
+}
+
+#[derive(Debug)]
 pub enum Stmt {
     Expr(ExprStmt),
     Print(PrintStmt),
+    Block(BlockStmt),
 }
 impl Display for Stmt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Expr(stmt) => Display::fmt(stmt, f),
             Self::Print(stmt) => Display::fmt(stmt, f),
+            Self::Block(stmt) => Display::fmt(stmt, f),
         }
     }
 }
@@ -190,6 +213,7 @@ impl AstNode for Stmt {
         match self {
             Self::Expr(stmt) => stmt.source_span(),
             Self::Print(stmt) => stmt.source_span(),
+            Self::Block(stmt) => stmt.source_span(),
         }
     }
 }
@@ -328,12 +352,28 @@ impl AstNode for AssignmentExpr {
 }
 
 #[derive(Debug)]
+pub struct GroupingExpr {
+    pub expr: Box<Expr>,
+}
+impl Display for GroupingExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.expr, f)
+    }
+}
+impl AstNode for GroupingExpr {
+    fn source_span(&self) -> SourceSpan {
+        self.expr.source_span()
+    }
+}
+
+#[derive(Debug)]
 pub enum Expr {
     Binary(BinaryExpr),
     Unary(UnaryExpr),
     Literal(LiteralExpr),
     Variable(VariableExpr),
     Assignment(AssignmentExpr),
+    Grouping(GroupingExpr),
 }
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -343,6 +383,7 @@ impl Display for Expr {
             Self::Literal(expr) => Display::fmt(expr, f),
             Self::Variable(expr) => Display::fmt(expr, f),
             Self::Assignment(expr) => Display::fmt(expr, f),
+            Self::Grouping(expr) => Display::fmt(expr, f),
         }
     }
 }
@@ -354,6 +395,7 @@ impl AstNode for Expr {
             Self::Literal(expr) => expr.source_span(),
             Self::Variable(expr) => expr.source_span(),
             Self::Assignment(expr) => expr.source_span(),
+            Self::Grouping(expr) => expr.source_span(),
         }
     }
 }

@@ -324,7 +324,7 @@ mod tests {
                 let input_str = fs::read_to_string(scanner_dir.join(&name)).unwrap();
                 let expected_output_str =
                     fs::read_to_string(scanner_dir.join(name.replace("-input.lox", "-output.ron")))
-                        .unwrap_or("".to_string());
+                        .unwrap_or_else(|_| "".to_string());
 
                 let actual_output_str = format!(
                     "{:#?}",

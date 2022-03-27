@@ -174,14 +174,14 @@ impl AstNode for PrintStmt {
 
 #[derive(Debug)]
 pub struct BlockStmt {
-    pub statements: Vec<DeclOrStmt>,
+    pub body: Vec<DeclOrStmt>,
     pub open_span: SourceSpan,
     pub close_span: SourceSpan,
 }
 impl Display for BlockStmt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("(do ")?;
-        for stmt in self.statements.iter() {
+        for stmt in self.body.iter() {
             write!(f, "{} ", stmt)?;
         }
         f.write_str(")")

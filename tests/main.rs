@@ -17,7 +17,7 @@ use miette::{miette, IntoDiagnostic, Result};
 use regex::Regex;
 
 lazy_static! {
-    static ref IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((benchmark|call|class|closure|constructor|field|for|function|inheritance|limit|method|regression|return|super|this)/|(variable/(early_bound|local_from_method|duplicate_parameter|use_this_as_var|collide_with_parameter|use_local_in_initializer)|operator/(not_class|not|equals_class|equals_method)|assignment/to_this|while/(return_closure|syntax|return_inside|closure_in_body|class_in_body|fun_in_body)).lox)").unwrap();
+    static ref IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((benchmark|call|class|closure|constructor|field|function|inheritance|limit|method|regression|return|super|this)/|(variable/(early_bound|local_from_method|duplicate_parameter|use_this_as_var|collide_with_parameter|use_local_in_initializer)|operator/(not_class|not|equals_class|equals_method)|assignment/to_this|while/(return_closure|return_inside|closure_in_body|class_in_body|fun_in_body)|for/(return_closure|return_inside|syntax|closure_in_body|class_in_body|fun_in_body)).lox)").unwrap();
 }
 
 fn main() {
@@ -83,6 +83,8 @@ fn run_test(path: &Path) -> Result<Outcome> {
     });
 
     let (program, parser_errors) = Parser::parse(token_stream, ParserOpts::default());
+
+    let did_have_scan_or_parse_errors = !scanner_errors.is_empty() || !parser_errors.is_empty();
     for scanner_error in scanner_errors {
         match match_errors(
             scanner_error,
@@ -117,6 +119,10 @@ fn run_test(path: &Path) -> Result<Outcome> {
         });
     }
 
+    if did_have_scan_or_parse_errors {
+        return Ok(Outcome::Passed);
+    }
+
     let mut output_writer = StringWriter::new();
     let mut interpreter = Interpreter::new(&mut output_writer);
     if let Err(err) = interpreter.interpret(&program) {
@@ -146,10 +152,10 @@ fn match_errors<E: FmtError>(
     match expected_error {
         Some(expected_str) if expected_str.trim() == actual_str.trim() => Ok(()),
         Some(expected_str) => Err(format!(
-            "Parse errors do not match.\nExpected: {}\n  Actual: {}",
+            "Errors do not match.\nExpected: {}\n  Actual: {}",
             expected_str, actual_str
         )),
-        None => Err(format!("Unexpected parse error:\n{}", actual_str)),
+        None => Err(format!("Unexpected error:\n{}", actual_str)),
     }
 }
 

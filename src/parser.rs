@@ -131,6 +131,9 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         if self.consume_token(TokenType::While).is_some() {
             return Ok(Stmt::While(self.parse_while_stmt()?));
         }
+        if self.consume_token(TokenType::For).is_some() {
+            return self.parse_for_stmt();
+        }
         if let Some(print_span) = self.consume_token_to_span(TokenType::Print) {
             let expression = self.parse_expr()?;
             self.consume_statement_end_semicolon()?;
@@ -145,7 +148,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
             loop {
                 if let Some(close_span) = self.consume_token_to_span(TokenType::CloseBrace) {
                     return Ok(Stmt::Block(BlockStmt {
-                        statements,
+                        body: statements,
                         open_span,
                         close_span,
                     }));
@@ -155,9 +158,12 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
             }
         }
 
+        Ok(Stmt::Expr(self.parse_expr_stmt()?))
+    }
+    fn parse_expr_stmt(&mut self) -> Result<ExprStmt, ParserError> {
         let expression = self.parse_expr()?;
         self.consume_statement_end_semicolon()?;
-        Ok(Stmt::Expr(ExprStmt { expression }))
+        Ok(ExprStmt { expression })
     }
     fn parse_if_stmt(&mut self) -> Result<IfStmt, ParserError> {
         let if_span = self.extract_current_token_span(TokenType::If);
@@ -191,6 +197,67 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
             while_span,
             condition,
             body,
+        })
+    }
+    fn parse_for_stmt(&mut self) -> Result<Stmt, ParserError> {
+        let for_span = self.extract_current_token_span(TokenType::For);
+        self.consume_token_or_default_error(&TokenType::OpenParen)?;
+
+        let initializer = if self.consume_token(TokenType::Semicolon).is_some() {
+            None
+        } else if self.consume_token(TokenType::Var).is_some() {
+            Some(DeclOrStmt::Decl(Decl::Var(self.parse_var_decl()?)))
+        } else {
+            Some(DeclOrStmt::Stmt(Stmt::Expr(self.parse_expr_stmt()?)))
+        };
+
+        let condition = match self.consume_token(TokenType::Semicolon) {
+            Some(_) => None,
+            None => {
+                let expr = self.parse_expr()?;
+                self.consume_token_or_default_error(&TokenType::Semicolon)?;
+                Some(expr)
+            }
+        };
+
+        let increment = match self.consume_token(TokenType::CloseParen) {
+            Some(_) => None,
+            None => {
+                let expr = self.parse_expr()?;
+                self.consume_token_or_default_error(&TokenType::CloseParen)?;
+                Some(expr)
+            }
+        };
+
+        let body = self.parse_stmt()?;
+
+        let mut body = BlockStmt {
+            open_span: body.source_span().start().into(),
+            close_span: body.source_span().end().into(),
+            body: vec![DeclOrStmt::Stmt(body)],
+        };
+        if let Some(expression) = increment {
+            body.body
+                .push(DeclOrStmt::Stmt(Stmt::Expr(ExprStmt { expression })));
+        }
+
+        let body = Stmt::While(WhileStmt {
+            while_span: for_span,
+            condition: condition.unwrap_or(Expr::Literal(LiteralExpr {
+                value: Value::Boolean(true),
+                source_span: for_span,
+            })),
+            body: Box::new(Stmt::Block(body)),
+        });
+
+        Ok(if let Some(initializer) = initializer {
+            Stmt::Block(BlockStmt {
+                open_span: initializer.source_span(),
+                close_span: body.source_span().end().into(),
+                body: vec![initializer, DeclOrStmt::Stmt(body)],
+            })
+        } else {
+            body
         })
     }
     fn consume_statement_end_semicolon(&mut self) -> Result<(), ParserError> {

@@ -1,2 +1,2 @@
-// [line 2] Error at '{': Expect expression.
+// ParserError: UnexpectedExpressionToken found OpenBrace at l2c24
 for (var a = 1; a < 2; {}) {}

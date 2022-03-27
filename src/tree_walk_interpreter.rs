@@ -89,7 +89,7 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                 Ok(value)
             }
             Stmt::Block(stmt) => self.run_with_new_child_environment(|this| {
-                try_for_each_and_return_last(&stmt.statements, Value::Nil, |stmt| {
+                try_for_each_and_return_last(&stmt.body, Value::Nil, |stmt| {
                     this.eval_decl_or_stmt(stmt)
                 })
             }),

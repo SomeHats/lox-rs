@@ -1,2 +1,2 @@
-// [line 2] Error at 'var': Expect expression.
+// ParserError: UnexpectedExpressionToken found Var from l2c14 to l2c17
 while (true) var foo;

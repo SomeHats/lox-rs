@@ -17,7 +17,7 @@ use miette::{miette, IntoDiagnostic, Result};
 use regex::Regex;
 
 lazy_static! {
-    static ref IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((benchmark|call|class|closure|constructor|field|for|function|inheritance|limit|method|regression|return|super|this|while)/|(variable/(early_bound|local_from_method|duplicate_parameter|use_this_as_var|unreached_undefined|collide_with_parameter|use_local_in_initializer)|operator/(not_class|not|equals_class|equals_method)|assignment/to_this).lox)").unwrap();
+    static ref IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((benchmark|call|class|closure|constructor|field|for|function|inheritance|limit|method|regression|return|super|this)/|(variable/(early_bound|local_from_method|duplicate_parameter|use_this_as_var|collide_with_parameter|use_local_in_initializer)|operator/(not_class|not|equals_class|equals_method)|assignment/to_this|while/(return_closure|syntax|return_inside|closure_in_body|class_in_body|fun_in_body)).lox)").unwrap();
 }
 
 fn main() {

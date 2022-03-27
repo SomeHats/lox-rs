@@ -225,11 +225,29 @@ impl AstNode for IfStmt {
 }
 
 #[derive(Debug)]
+pub struct WhileStmt {
+    pub while_span: SourceSpan,
+    pub condition: Expr,
+    pub body: Box<Stmt>,
+}
+impl Display for WhileStmt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "(while {} {})", self.condition, self.body)
+    }
+}
+impl AstNode for WhileStmt {
+    fn source_span(&self) -> SourceSpan {
+        SourceSpan::range(self.while_span.start(), self.body.source_span().end())
+    }
+}
+
+#[derive(Debug)]
 pub enum Stmt {
     Expr(ExprStmt),
     Print(PrintStmt),
     Block(BlockStmt),
     If(IfStmt),
+    While(WhileStmt),
 }
 impl Display for Stmt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -238,6 +256,7 @@ impl Display for Stmt {
             Self::Print(stmt) => Display::fmt(stmt, f),
             Self::Block(stmt) => Display::fmt(stmt, f),
             Self::If(stmt) => Display::fmt(stmt, f),
+            Self::While(stmt) => Display::fmt(stmt, f),
         }
     }
 }
@@ -248,6 +267,7 @@ impl AstNode for Stmt {
             Self::Print(stmt) => stmt.source_span(),
             Self::Block(stmt) => stmt.source_span(),
             Self::If(stmt) => stmt.source_span(),
+            Self::While(stmt) => stmt.source_span(),
         }
     }
 }

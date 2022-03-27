@@ -95,12 +95,17 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
             }),
             Stmt::If(stmt) => {
                 if self.eval_expr(&stmt.condition)?.cast_boolean() {
-                    self.eval_stmt(&stmt.then_branch)
+                    self.eval_stmt(&stmt.then_branch)?;
                 } else if let Some(else_branch) = &stmt.else_branch {
-                    self.eval_stmt(else_branch)
-                } else {
-                    Ok(Value::Nil)
+                    self.eval_stmt(else_branch)?;
                 }
+                Ok(Value::Nil)
+            }
+            Stmt::While(stmt) => {
+                while self.eval_expr(&stmt.condition)?.cast_boolean() {
+                    self.eval_stmt(&stmt.body)?;
+                }
+                Ok(Value::Nil)
             }
         }
     }

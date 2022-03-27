@@ -45,7 +45,18 @@ pub enum ParserError {
     },
 }
 
+#[derive(Default)]
+pub struct ParserOpts {
+    is_repl: bool,
+}
+impl ParserOpts {
+    pub fn for_repl(self) -> Self {
+        Self { is_repl: true }
+    }
+}
+
 pub struct Parser<Stream: Iterator<Item = Token>> {
+    opts: ParserOpts,
     token_stream: Peekable<Stream>,
     current_token: Option<Token>,
     at_end: bool,
@@ -53,13 +64,14 @@ pub struct Parser<Stream: Iterator<Item = Token>> {
 }
 
 impl<Stream: Iterator<Item = Token>> Parser<Stream> {
-    pub fn parse(token_stream: Stream) -> (Program, Vec<ParserError>) {
-        let mut parser = Self::new(token_stream);
+    pub fn parse(token_stream: Stream, opts: ParserOpts) -> (Program, Vec<ParserError>) {
+        let mut parser = Self::new(token_stream, opts);
         let program = parser.parse_program();
         (program, parser.recovered_errors)
     }
-    fn new(token_stream: Stream) -> Parser<impl Iterator<Item = Token>> {
+    fn new(token_stream: Stream, opts: ParserOpts) -> Parser<impl Iterator<Item = Token>> {
         Parser {
+            opts,
             token_stream: token_stream
                 .filter(|token| token.token_type != TokenType::LineComment)
                 .peekable(),
@@ -117,6 +129,9 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         })
     }
     fn parse_stmt(&mut self) -> Result<Stmt, ParserError> {
+        if self.consume_token(TokenType::If).is_some() {
+            return Ok(Stmt::If(self.parse_if_stmt()?));
+        }
         if let Some(print_span) = self.consume_token_to_span(TokenType::Print) {
             let expression = self.parse_expr()?;
             self.consume_token_or_error(TokenType::Semicolon, |token| {
@@ -150,13 +165,64 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         self.consume_statement_end_semicolon()?;
         Ok(Stmt::Expr(ExprStmt { expression }))
     }
+    fn parse_if_stmt(&mut self) -> Result<IfStmt, ParserError> {
+        let if_span = {
+            let if_token = self.current_token.as_ref().unwrap();
+            assert_eq!(if_token.token_type, TokenType::If);
+            if_token.span
+        };
+
+        self.consume_token_or_error(TokenType::OpenParen, |actual| {
+            ParserError::UnexpectedToken {
+                actual: (&actual.token_type).into(),
+                expected: TokenTypeName::OpenParen,
+                found_at: actual.span,
+            }
+        })?;
+
+        let condition = self.parse_expr()?;
+
+        self.consume_token_or_error(TokenType::CloseParen, |actual| {
+            ParserError::UnexpectedToken {
+                actual: (&actual.token_type).into(),
+                expected: TokenTypeName::CloseParen,
+                found_at: actual.span,
+            }
+        })?;
+
+        let then_branch = Box::new(self.parse_stmt()?);
+        let else_branch = if self.consume_token(TokenType::Else).is_some() {
+            Some(Box::new(self.parse_stmt()?))
+        } else {
+            None
+        };
+
+        Ok(IfStmt {
+            if_span,
+            condition,
+            then_branch,
+            else_branch,
+        })
+    }
     fn consume_statement_end_semicolon(&mut self) -> Result<(), ParserError> {
-        self.consume_token_or_error(TokenType::Semicolon, |token| {
+        let result = self.consume_token_or_error(TokenType::Semicolon, |token| {
             ParserError::ExpectedSemicolor {
                 actual: (&token.token_type).into(),
                 found_at: token.span,
             }
-        })
+        });
+        if self.opts.is_repl {
+            result.or_else(|_| {
+                self.consume_token_or_error(TokenType::Eof, |token| {
+                    ParserError::ExpectedSemicolor {
+                        actual: (&token.token_type).into(),
+                        found_at: token.span,
+                    }
+                })
+            })
+        } else {
+            result
+        }
     }
     fn parse_expr(&mut self) -> Result<Expr, ParserError> {
         self.parse_assignment_expr()
@@ -171,7 +237,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
             }
         }
 
-        let expr = self.parse_equality_expr()?;
+        let expr = self.parse_or_expr()?;
         if self.consume_token(TokenType::Equal).is_some() {
             let value = self.parse_expr()?;
             let target = expr_to_assignment_target(expr)?;
@@ -182,6 +248,32 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         } else {
             Ok(expr)
         }
+    }
+    fn parse_or_expr(&mut self) -> Result<Expr, ParserError> {
+        let mut last_expr = self.parse_and_expr()?;
+
+        while let Some(or_span) = self.consume_token_to_span(TokenType::Or) {
+            last_expr = Expr::Binary(BinaryExpr {
+                left: Box::new(last_expr),
+                right: Box::new(self.parse_and_expr()?),
+                operator: WithSpan::new(BinaryOperator::LogicalOr, or_span),
+            });
+        }
+
+        Ok(last_expr)
+    }
+    fn parse_and_expr(&mut self) -> Result<Expr, ParserError> {
+        let mut last_expr = self.parse_equality_expr()?;
+
+        while let Some(or_span) = self.consume_token_to_span(TokenType::And) {
+            last_expr = Expr::Binary(BinaryExpr {
+                left: Box::new(last_expr),
+                right: Box::new(self.parse_equality_expr()?),
+                operator: WithSpan::new(BinaryOperator::LogicalAnd, or_span),
+            });
+        }
+
+        Ok(last_expr)
     }
     fn parse_equality_expr(&mut self) -> Result<Expr, ParserError> {
         let mut last_expr = self.parse_comparison_expr()?;

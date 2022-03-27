@@ -93,6 +93,15 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                     this.eval_decl_or_stmt(stmt)
                 })
             }),
+            Stmt::If(stmt) => {
+                if self.eval_expr(&stmt.condition)?.cast_boolean() {
+                    self.eval_stmt(&stmt.then_branch)
+                } else if let Some(else_branch) = &stmt.else_branch {
+                    self.eval_stmt(else_branch)
+                } else {
+                    Ok(Value::Nil)
+                }
+            }
         }
     }
     pub fn eval_expr(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
@@ -103,7 +112,7 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                 operator,
             }) => {
                 let left_val = self.eval_expr(left)?;
-                let right_val = self.eval_expr(right)?;
+                let mut right_val = || self.eval_expr(right);
                 let make_left_err =
                     |expected: ValueDescriptor, actual: ValueType| RuntimeError::OperandTypeError {
                         expected_type: expected,
@@ -123,6 +132,7 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                 Ok(match operator.inner() {
                     BinaryOperator::Plus => match left_val {
                         Value::String(left_str) => {
+                            let right_val = right_val()?;
                             let right_str = right_val.cast_string(make_right_err)?;
                             let mut new_str =
                                 String::with_capacity(left_str.len() + right_str.len());
@@ -131,7 +141,7 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                             Value::String(Rc::new(new_str))
                         }
                         Value::Number(left_num) => {
-                            Value::Number(left_num + right_val.cast_number(make_right_err)?)
+                            Value::Number(left_num + right_val()?.cast_number(make_right_err)?)
                         }
                         value => {
                             return Err(make_left_err(
@@ -142,34 +152,48 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                     },
                     BinaryOperator::Minus => Value::Number(
                         left_val.cast_number(make_left_err)?
-                            - right_val.cast_number(make_right_err)?,
+                            - right_val()?.cast_number(make_right_err)?,
                     ),
                     BinaryOperator::Multiply => Value::Number(
                         left_val.cast_number(make_left_err)?
-                            * right_val.cast_number(make_right_err)?,
+                            * right_val()?.cast_number(make_right_err)?,
                     ),
                     BinaryOperator::Divide => Value::Number(
                         left_val.cast_number(make_left_err)?
-                            / right_val.cast_number(make_right_err)?,
+                            / right_val()?.cast_number(make_right_err)?,
                     ),
-                    BinaryOperator::NotEqualTo => Value::Boolean(left_val != right_val),
-                    BinaryOperator::EqualTo => Value::Boolean(left_val == right_val),
+                    BinaryOperator::NotEqualTo => Value::Boolean(left_val != right_val()?),
+                    BinaryOperator::EqualTo => Value::Boolean(left_val == right_val()?),
                     BinaryOperator::LessThan => Value::Boolean(
                         left_val.cast_number(make_left_err)?
-                            < right_val.cast_number(make_right_err)?,
+                            < right_val()?.cast_number(make_right_err)?,
                     ),
                     BinaryOperator::LessThanOrEqualTo => Value::Boolean(
                         left_val.cast_number(make_left_err)?
-                            <= right_val.cast_number(make_right_err)?,
+                            <= right_val()?.cast_number(make_right_err)?,
                     ),
                     BinaryOperator::GreaterThan => Value::Boolean(
                         left_val.cast_number(make_left_err)?
-                            > right_val.cast_number(make_right_err)?,
+                            > right_val()?.cast_number(make_right_err)?,
                     ),
                     BinaryOperator::GreaterThanOrEqualTo => Value::Boolean(
                         left_val.cast_number(make_left_err)?
-                            >= right_val.cast_number(make_right_err)?,
+                            >= right_val()?.cast_number(make_right_err)?,
                     ),
+                    BinaryOperator::LogicalAnd => {
+                        if !left_val.cast_boolean() {
+                            left_val
+                        } else {
+                            right_val()?
+                        }
+                    }
+                    BinaryOperator::LogicalOr => {
+                        if left_val.cast_boolean() {
+                            left_val
+                        } else {
+                            right_val()?
+                        }
+                    }
                 })
             }
             Expr::Unary(UnaryExpr { operator, right }) => {

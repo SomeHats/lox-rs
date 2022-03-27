@@ -1,2 +1,2 @@
-// [line 2] Error at 'fun': Expect expression.
+// ParserError: UnexpectedExpressionToken found Fun from l2c11 to l2c14
 if (true) fun foo() {}

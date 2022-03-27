@@ -6,7 +6,7 @@ mod source;
 mod tree_walk_interpreter;
 mod value;
 
-pub use parser::{Parser, ParserError};
+pub use parser::{Parser, ParserError, ParserOpts};
 pub use scanner::{Scanner, ScannerError};
 pub use source::{SourceOffset, SourceSpan};
 pub use tree_walk_interpreter::{Interpreter, RuntimeError};

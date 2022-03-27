@@ -10,13 +10,14 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use libtest_mimic::{self, run_tests, Arguments, Outcome, Test};
 use lox_rs::{
-    Interpreter, Parser, ParserError, RuntimeError, Scanner, ScannerError, SourceOffset, SourceSpan,
+    Interpreter, Parser, ParserError, ParserOpts, RuntimeError, Scanner, ScannerError,
+    SourceOffset, SourceSpan,
 };
 use miette::{miette, IntoDiagnostic, Result};
 use regex::Regex;
 
 lazy_static! {
-    static ref IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((benchmark|call|class|closure|constructor|field|for|function|if|inheritance|limit|method|regression|return|super|this|while)/|(block/empty|variable/(early_bound|local_from_method|duplicate_parameter|use_this_as_var|unreached_undefined|collide_with_parameter|use_local_in_initializer)|operator/(not_class|not|equals_class|equals_method)|assignment/to_this|logical_operator/(or_truth|and_truth|or|and)).lox)").unwrap();
+    static ref IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((benchmark|call|class|closure|constructor|field|for|function|inheritance|limit|method|regression|return|super|this|while)/|(variable/(early_bound|local_from_method|duplicate_parameter|use_this_as_var|unreached_undefined|collide_with_parameter|use_local_in_initializer)|operator/(not_class|not|equals_class|equals_method)|assignment/to_this).lox)").unwrap();
 }
 
 fn main() {
@@ -81,7 +82,7 @@ fn run_test(path: &Path) -> Result<Outcome> {
         }
     });
 
-    let (program, parser_errors) = Parser::parse(token_stream);
+    let (program, parser_errors) = Parser::parse(token_stream, ParserOpts::default());
     for scanner_error in scanner_errors {
         match match_errors(
             scanner_error,

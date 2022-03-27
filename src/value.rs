@@ -60,6 +60,7 @@ pub enum ValueType {
     Number,
     Boolean,
     Nil,
+    Function,
 }
 
 impl Display for ValueType {
@@ -69,6 +70,7 @@ impl Display for ValueType {
             ValueType::Number => "number",
             ValueType::Boolean => "boolean",
             ValueType::Nil => "nil",
+            ValueType::Function => "function",
         })
     }
 }
@@ -80,6 +82,7 @@ impl ValueType {
             ValueType::Number => "a number",
             ValueType::Boolean => "a boolean",
             ValueType::Nil => "nil",
+            ValueType::Function => "a function",
         }
     }
 }

@@ -43,6 +43,13 @@ pub enum ParserError {
         #[label("Cannot assign to this expression")]
         found_at: SourceSpan,
     },
+    #[error("Can't have more than 254 arguments to function")]
+    TooManyCallArgs {
+        #[label("The function call is here")]
+        callee_at: SourceSpan,
+        #[label("The 255th argument is here")]
+        too_many_args_at: SourceSpan,
+    },
 }
 
 #[derive(Default)]
@@ -261,23 +268,22 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         })
     }
     fn consume_statement_end_semicolon(&mut self) -> Result<(), ParserError> {
+        let is_repl = self.opts.is_repl;
         let result = self.consume_token_or_error(&TokenType::Semicolon, |token| {
             ParserError::ExpectedSemicolor {
                 actual: (&token.token_type).into(),
                 found_at: token.span,
             }
         });
-        if self.opts.is_repl {
-            result.or_else(|_| {
-                self.consume_token_or_error(&TokenType::Eof, |token| {
-                    ParserError::ExpectedSemicolor {
-                        actual: (&token.token_type).into(),
-                        found_at: token.span,
-                    }
-                })
-            })
+        if is_repl && result.is_err() {
+            self.consume_token_or_error(&TokenType::Eof, |token| ParserError::ExpectedSemicolor {
+                actual: (&token.token_type).into(),
+                found_at: token.span,
+            })?;
+            Ok(())
         } else {
-            result
+            result?;
+            Ok(())
         }
     }
     fn parse_expr(&mut self) -> Result<Expr, ParserError> {
@@ -417,8 +423,42 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
                 right: Box::new(self.parse_unary_expr()?),
             }))
         } else {
-            self.parse_primary_expr()
+            self.parse_call_expr()
         }
+    }
+    fn parse_call_expr(&mut self) -> Result<Expr, ParserError> {
+        let mut expr = self.parse_primary_expr()?;
+        while self.consume_token(TokenType::OpenParen).is_some() {
+            expr = {
+                let mut arguments = Vec::new();
+                let close_paren_span = match self.consume_token_to_span(TokenType::CloseParen) {
+                    Some(span) => span,
+                    None => {
+                        loop {
+                            let argument = self.parse_expr()?;
+                            if arguments.len() == 254 {
+                                self.recovered_errors.push(ParserError::TooManyCallArgs {
+                                    callee_at: expr.source_span(),
+                                    too_many_args_at: argument.source_span(),
+                                })
+                            }
+                            arguments.push(argument);
+                            if self.consume_token(TokenType::Comma).is_none() {
+                                break;
+                            }
+                        }
+                        self.consume_token_or_default_error(&TokenType::CloseParen)?
+                            .span
+                    }
+                };
+                Expr::Call(CallExpr {
+                    callee: Box::new(expr),
+                    arguments,
+                    close_paren_span,
+                })
+            }
+        }
+        Ok(expr)
     }
     fn parse_primary_expr(&mut self) -> Result<Expr, ParserError> {
         let literal = self.consume_match(|token| {
@@ -565,11 +605,11 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         &mut self,
         token_type: &TokenType,
         make_err: F,
-    ) -> Result<(), ParserError> {
+    ) -> Result<&Token, ParserError> {
         match self.token_stream.peek() {
             Some(token) if token.token_type == *token_type => {
                 self.advance();
-                Ok(())
+                Ok(self.current_token.as_ref().unwrap())
             }
             Some(other_token) => Err(make_err(other_token)),
             None => Err(make_err(self.current_token.as_ref().unwrap())),
@@ -578,7 +618,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
     fn consume_token_or_default_error(
         &mut self,
         token_type: &TokenType,
-    ) -> Result<(), ParserError> {
+    ) -> Result<&Token, ParserError> {
         self.consume_token_or_error(token_type, |actual| ParserError::UnexpectedToken {
             actual: (&actual.token_type).into(),
             expected: token_type.into(),

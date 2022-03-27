@@ -79,7 +79,7 @@ fn run_prompt() -> Result<()> {
                     Some(program) => {
                         println!("{}", program);
                         match interpreter.interpret(&program) {
-                            Ok(value) => println!("==> {}", value),
+                            Ok(value) => println!("==> {:?}", value),
                             Err(err) => {
                                 let report = Report::new(err)
                                     .with_source_code(NamedSource::new("<repl>", line));

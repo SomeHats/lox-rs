@@ -3,6 +3,8 @@ use std::{
     ops::Deref,
 };
 
+use itertools::Itertools;
+
 use crate::{source::SourceSpan, value::Value};
 
 #[derive(Debug)]
@@ -425,6 +427,34 @@ impl AstNode for GroupingExpr {
 }
 
 #[derive(Debug)]
+pub struct CallExpr {
+    pub callee: Box<Expr>,
+    pub arguments: Vec<Expr>,
+    pub close_paren_span: SourceSpan,
+}
+impl Display for CallExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "(call {} {})",
+            self.callee,
+            self.arguments
+                .iter()
+                .map(|arg| format!("{}", arg))
+                .join(" ")
+        )
+    }
+}
+impl AstNode for CallExpr {
+    fn source_span(&self) -> SourceSpan {
+        SourceSpan::range(
+            self.callee.source_span().start(),
+            self.close_paren_span.end(),
+        )
+    }
+}
+
+#[derive(Debug)]
 pub enum Expr {
     Binary(BinaryExpr),
     Unary(UnaryExpr),
@@ -432,6 +462,7 @@ pub enum Expr {
     Variable(VariableExpr),
     Assignment(AssignmentExpr),
     Grouping(GroupingExpr),
+    Call(CallExpr),
 }
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -442,6 +473,7 @@ impl Display for Expr {
             Self::Variable(expr) => Display::fmt(expr, f),
             Self::Assignment(expr) => Display::fmt(expr, f),
             Self::Grouping(expr) => Display::fmt(expr, f),
+            Self::Call(expr) => Display::fmt(expr, f),
         }
     }
 }
@@ -454,6 +486,7 @@ impl AstNode for Expr {
             Self::Variable(expr) => expr.source_span(),
             Self::Assignment(expr) => expr.source_span(),
             Self::Grouping(expr) => expr.source_span(),
+            Self::Call(expr) => expr.source_span(),
         }
     }
 }

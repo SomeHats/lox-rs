@@ -95,7 +95,7 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
             .as_ref()
             .map(|expr| self.eval_expr(expr))
             .transpose()?
-            .unwrap_or(RuntimeValue::nil());
+            .unwrap_or_else(RuntimeValue::nil);
 
         Ok(self
             .environment
@@ -261,21 +261,7 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                 let callee_val = self.eval_expr(&call_expr.callee)?;
                 match callee_val {
                     RuntimeValue::NativeFunction(native_fn) => {
-                        let argument_vals = call_expr
-                            .arguments
-                            .iter()
-                            .map(|arg| self.eval_expr(arg))
-                            .collect::<Result<Vec<_>, _>>()?;
-
-                        if argument_vals.len() != native_fn.arity {
-                            Err(RuntimeError::UnexpectedCallArity {
-                                expected_arity: native_fn.arity,
-                                actual_arity: argument_vals.len(),
-                                found_at: call_expr.source_span(),
-                            })
-                        } else {
-                            (native_fn.implementation)(&argument_vals)
-                        }
+                        self.eval_call(call_expr.source_span(), &*native_fn, &call_expr.arguments)
                     }
                     other => Err(RuntimeError::UncallableValue {
                         actual_type: other.type_of(),
@@ -283,6 +269,27 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                     }),
                 }
             }
+        }
+    }
+    fn eval_call<Callable: LoxCallable>(
+        &mut self,
+        callable_source_span: SourceSpan,
+        callable: &Callable,
+        arguments: &[Expr],
+    ) -> Result<RuntimeValue, RuntimeError> {
+        let argument_vals = arguments
+            .iter()
+            .map(|arg| self.eval_expr(arg))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if argument_vals.len() != callable.arity() {
+            Err(RuntimeError::UnexpectedCallArity {
+                expected_arity: callable.arity(),
+                actual_arity: argument_vals.len(),
+                found_at: callable_source_span,
+            })
+        } else {
+            callable.call(&argument_vals)
         }
     }
     fn run_with_new_child_environment<T, F: Fn(&mut Self) -> T>(&mut self, run: F) -> T {
@@ -311,7 +318,7 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
         let id = self.get_next_value_id();
         self.environment
             .define(
-                &name,
+                name,
                 RuntimeValue::NativeFunction(Rc::new(LoxNativeFunction {
                     id,
                     name: name.to_string(),
@@ -323,11 +330,25 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
     }
 }
 
+trait LoxCallable {
+    fn arity(&self) -> usize;
+    fn call(&self, args: &[RuntimeValue]) -> Result<RuntimeValue, RuntimeError>;
+}
+
 pub struct LoxNativeFunction {
     id: usize,
     name: String,
     arity: usize,
     implementation: fn(&[RuntimeValue]) -> Result<RuntimeValue, RuntimeError>,
+}
+impl LoxCallable for LoxNativeFunction {
+    fn arity(&self) -> usize {
+        self.arity
+    }
+
+    fn call(&self, args: &[RuntimeValue]) -> Result<RuntimeValue, RuntimeError> {
+        (self.implementation)(args)
+    }
 }
 impl Display for LoxNativeFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

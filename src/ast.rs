@@ -1,6 +1,7 @@
 use std::{
     fmt::{Debug, Display},
     ops::Deref,
+    rc::Rc,
 };
 
 use itertools::Itertools;
@@ -103,13 +104,45 @@ impl Display for VarDecl {
 }
 
 #[derive(Debug)]
+pub struct FunDecl {
+    pub source_span: SourceSpan,
+    pub name: Identifier,
+    pub parameters: Vec<Identifier>,
+    pub body: Vec<DeclOrStmt>,
+}
+impl Display for FunDecl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "(fun {} ({}) \n{})",
+            self.name,
+            self.parameters
+                .iter()
+                .map(|param| param.to_string())
+                .join(" "),
+            self.body
+                .iter()
+                .map(|stmt| format!("  {}", stmt))
+                .join("\n")
+        )
+    }
+}
+impl AstNode for FunDecl {
+    fn source_span(&self) -> SourceSpan {
+        self.source_span
+    }
+}
+
+#[derive(Debug)]
 pub enum Decl {
     Var(VarDecl),
+    Fun(Rc<FunDecl>),
 }
 impl AstNode for Decl {
     fn source_span(&self) -> SourceSpan {
         match self {
             Self::Var(decl) => decl.source_span(),
+            Self::Fun(decl) => decl.source_span(),
         }
     }
 }
@@ -117,6 +150,7 @@ impl Display for Decl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Var(decl) => Display::fmt(decl, f),
+            Self::Fun(decl) => Display::fmt(decl, f),
         }
     }
 }
@@ -244,12 +278,38 @@ impl AstNode for WhileStmt {
 }
 
 #[derive(Debug)]
+pub struct ReturnStmt {
+    pub return_span: SourceSpan,
+    pub expression: Option<Expr>,
+}
+impl Display for ReturnStmt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.expression {
+            Some(expression) => write!(f, "(return {})", expression),
+            None => write!(f, "(return)"),
+        }
+    }
+}
+impl AstNode for ReturnStmt {
+    fn source_span(&self) -> SourceSpan {
+        SourceSpan::range(
+            self.return_span.start(),
+            self.expression
+                .as_ref()
+                .map(|expr| expr.source_span().end())
+                .unwrap_or_else(|| self.return_span.end()),
+        )
+    }
+}
+
+#[derive(Debug)]
 pub enum Stmt {
     Expr(ExprStmt),
     Print(PrintStmt),
     Block(BlockStmt),
     If(IfStmt),
     While(WhileStmt),
+    Return(ReturnStmt),
 }
 impl Display for Stmt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -259,6 +319,7 @@ impl Display for Stmt {
             Self::Block(stmt) => Display::fmt(stmt, f),
             Self::If(stmt) => Display::fmt(stmt, f),
             Self::While(stmt) => Display::fmt(stmt, f),
+            Self::Return(stmt) => Display::fmt(stmt, f),
         }
     }
 }
@@ -270,6 +331,7 @@ impl AstNode for Stmt {
             Self::Block(stmt) => stmt.source_span(),
             Self::If(stmt) => stmt.source_span(),
             Self::While(stmt) => stmt.source_span(),
+            Self::Return(stmt) => stmt.source_span(),
         }
     }
 }

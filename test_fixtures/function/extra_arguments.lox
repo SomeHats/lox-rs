@@ -3,4 +3,4 @@ fun f(a, b) {
   print b;
 }
 
-f(1, 2, 3, 4); // RuntimeError: Expected 2 arguments but got 4.
+f(1, 2, 3, 4); // RuntimeError: expected call arity 2 got 4 from l6c1 to l6c14

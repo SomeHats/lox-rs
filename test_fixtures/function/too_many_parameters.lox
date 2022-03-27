@@ -254,4 +254,4 @@ fun f(
     a252,
     a253,
     a254,
-    a255, a) {} // RuntimeError: at 'a': Can't have more than 255 parameters.
+    a255, a) {} // ParserError: TooManyFunParams decl from l2c1 to l2c6 param at l257c11

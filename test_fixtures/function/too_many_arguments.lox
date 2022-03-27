@@ -257,5 +257,5 @@ fun foo() {}
      a, // 253
      a, // 254
      a, // 255
-     a); // RuntimeError: at 'a': Can't have more than 255 arguments.
+     a); // ParserError: TooManyCallArgs callee from l4c3 to l4c6 arg at l260c6
 }

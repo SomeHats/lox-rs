@@ -1,7 +1,10 @@
 use std::{
+    cell::RefCell,
     collections::HashMap,
     fmt::{Debug, Display},
     io::Write,
+    mem,
+    ops::{ControlFlow, FromResidual, Try},
     rc::Rc,
 };
 
@@ -10,9 +13,11 @@ use crate::{
     source::SourceSpan,
     value::{Value, ValueDescriptor, ValueType},
 };
+use itertools::Itertools;
 use miette::{Diagnostic, Result};
-use replace_with::replace_with_or_default;
 use thiserror::Error;
+
+type EnvironmentRef = Rc<RefCell<Environment>>;
 
 #[derive(Error, Diagnostic, Debug)]
 pub enum RuntimeError {
@@ -53,16 +58,63 @@ pub enum RuntimeError {
     },
 }
 
+#[derive(Debug)]
+pub enum Completion {
+    Normal(RuntimeValue),
+    Return(RuntimeValue),
+    Error(RuntimeError),
+}
+
+#[derive(Debug)]
+pub enum AbruptCompletion {
+    Return(RuntimeValue),
+    Error(RuntimeError),
+}
+impl FromResidual for Completion {
+    fn from_residual(residual: <Self as Try>::Residual) -> Self {
+        match residual {
+            AbruptCompletion::Return(value) => Completion::Return(value),
+            AbruptCompletion::Error(err) => Completion::Error(err),
+        }
+    }
+}
+impl Try for Completion {
+    type Output = RuntimeValue;
+
+    type Residual = AbruptCompletion;
+
+    fn from_output(output: Self::Output) -> Self {
+        Completion::Normal(output)
+    }
+
+    fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
+        match self {
+            Completion::Normal(value) => ControlFlow::Continue(value),
+            Completion::Return(value) => ControlFlow::Break(AbruptCompletion::Return(value)),
+            Completion::Error(err) => ControlFlow::Break(AbruptCompletion::Error(err)),
+        }
+    }
+}
+impl From<Result<RuntimeValue, RuntimeError>> for Completion {
+    fn from(result: Result<RuntimeValue, RuntimeError>) -> Self {
+        match result {
+            Ok(value) => Completion::Normal(value),
+            Err(err) => Completion::Error(err),
+        }
+    }
+}
+
 pub struct Interpreter<'a, Stdout: Write> {
-    environment: Environment,
+    environment: EnvironmentRef,
     stdout: &'a mut Stdout,
     next_value_id: usize,
 }
 
 impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
     pub fn new(stdout: &'a mut Stdout) -> Self {
+        let globals = Rc::new(RefCell::new(Environment::new()));
         let mut interpreter = Self {
-            environment: Environment::new(),
+            environment: globals.clone(),
             stdout,
             next_value_id: 0,
         };
@@ -71,22 +123,46 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
         interpreter
     }
     pub fn interpret(&mut self, program: &Program) -> Result<RuntimeValue, RuntimeError> {
-        try_for_each_and_return_last(&program.statements, RuntimeValue::nil(), |stmt| {
-            self.eval_decl_or_stmt(stmt)
-        })
+        let result =
+            try_for_each_and_return_last(&program.statements, RuntimeValue::nil(), |stmt| {
+                self.eval_decl_or_stmt(stmt)
+            });
+        match result {
+            Completion::Normal(value) => Ok(value),
+            Completion::Return(value) => Ok(value),
+            Completion::Error(err) => Err(err),
+        }
     }
-    fn eval_decl_or_stmt(
-        &mut self,
-        decl_or_stmt: &DeclOrStmt,
-    ) -> Result<RuntimeValue, RuntimeError> {
+    fn eval_decl_or_stmt(&mut self, decl_or_stmt: &DeclOrStmt) -> Completion {
         match decl_or_stmt {
-            DeclOrStmt::Decl(decl) => self.eval_decl(decl),
+            DeclOrStmt::Decl(decl) => self.eval_decl(decl).into(),
             DeclOrStmt::Stmt(stmt) => self.eval_stmt(stmt),
         }
     }
     fn eval_decl(&mut self, decl: &Decl) -> Result<RuntimeValue, RuntimeError> {
         match decl {
             Decl::Var(decl) => self.eval_var_decl(decl),
+            Decl::Fun(decl) => {
+                let id = self.get_next_value_id();
+                self.environment
+                    .as_ref()
+                    .borrow_mut()
+                    .define(
+                        &decl.name.name,
+                        RuntimeValue::Function(Rc::new(LoxFunction {
+                            id,
+                            declaration: decl.clone(),
+                            closure: self.environment.clone(),
+                        })),
+                    )
+                    .map_err(|_| RuntimeError::AlreadyDefinedVariable {
+                        name: decl.name.name.clone(),
+                        found_at: SourceSpan::range(
+                            decl.source_span.start(),
+                            decl.name.source_span.end(),
+                        ),
+                    })
+            }
         }
     }
     fn eval_var_decl(&mut self, decl: &VarDecl) -> Result<RuntimeValue, RuntimeError> {
@@ -99,6 +175,8 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
 
         Ok(self
             .environment
+            .as_ref()
+            .borrow_mut()
             .define(&decl.identifier.name, initial_value)
             .map_err(|_| RuntimeError::AlreadyDefinedVariable {
                 name: decl.identifier.name.clone(),
@@ -106,32 +184,42 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
             })?
             .clone())
     }
-    fn eval_stmt(&mut self, stmt: &Stmt) -> Result<RuntimeValue, RuntimeError> {
+    fn eval_stmt(&mut self, stmt: &Stmt) -> Completion {
         match stmt {
-            Stmt::Expr(stmt) => self.eval_expr(&stmt.expression),
+            Stmt::Expr(stmt) => self.eval_expr(&stmt.expression).into(),
             Stmt::Print(stmt) => {
-                let value = self.eval_expr(&stmt.expression)?;
+                let value = Completion::from(self.eval_expr(&stmt.expression))?;
                 writeln!(self.stdout, "{}", value).unwrap();
-                Ok(value)
+                Completion::Normal(value)
             }
-            Stmt::Block(stmt) => self.run_with_new_child_environment(|this| {
-                try_for_each_and_return_last(&stmt.body, RuntimeValue::nil(), |stmt| {
-                    this.eval_decl_or_stmt(stmt)
-                })
-            }),
+            Stmt::Block(stmt) => self.run_with_env(
+                Environment::new_with_parent(self.environment.clone()).wrap(),
+                |this| {
+                    try_for_each_and_return_last(&stmt.body, RuntimeValue::nil(), |stmt| {
+                        this.eval_decl_or_stmt(stmt)
+                    })
+                },
+            ),
             Stmt::If(stmt) => {
-                if self.eval_expr(&stmt.condition)?.cast_boolean() {
+                if Completion::from(self.eval_expr(&stmt.condition))?.cast_boolean() {
                     self.eval_stmt(&stmt.then_branch)?;
                 } else if let Some(else_branch) = &stmt.else_branch {
                     self.eval_stmt(else_branch)?;
                 }
-                Ok(RuntimeValue::nil())
+                Completion::Normal(RuntimeValue::nil())
             }
             Stmt::While(stmt) => {
-                while self.eval_expr(&stmt.condition)?.cast_boolean() {
+                while Completion::from(self.eval_expr(&stmt.condition))?.cast_boolean() {
                     self.eval_stmt(&stmt.body)?;
                 }
-                Ok(RuntimeValue::nil())
+                Completion::Normal(RuntimeValue::nil())
+            }
+            Stmt::Return(stmt) => {
+                let value = match &stmt.expression {
+                    Some(expression) => Completion::from(self.eval_expr(expression))?,
+                    None => RuntimeValue::nil(),
+                };
+                Completion::Return(value)
             }
         }
     }
@@ -240,8 +328,8 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
             Expr::Literal(LiteralExpr { value, .. }) => Ok(value.clone().into()),
             Expr::Variable(VariableExpr { identifier }) => self
                 .environment
+                .borrow()
                 .get(&identifier.name)
-                .map(Clone::clone)
                 .ok_or_else(|| RuntimeError::UndefinedVariable {
                     name: identifier.name.clone(),
                     found_at: identifier.source_span(),
@@ -250,8 +338,9 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
             Expr::Assignment(AssignmentExpr { target, value }) => {
                 let value = self.eval_expr(value)?;
                 self.environment
+                    .as_ref()
+                    .borrow_mut()
                     .assign(&target.name, value)
-                    .map(Clone::clone)
                     .ok_or_else(|| RuntimeError::UndefinedVariable {
                         name: target.name.clone(),
                         found_at: target.source_span(),
@@ -262,6 +351,9 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                 match callee_val {
                     RuntimeValue::NativeFunction(native_fn) => {
                         self.eval_call(call_expr.source_span(), &*native_fn, &call_expr.arguments)
+                    }
+                    RuntimeValue::Function(fun) => {
+                        self.eval_call(call_expr.source_span(), &*fun, &call_expr.arguments)
                     }
                     other => Err(RuntimeError::UncallableValue {
                         actual_type: other.type_of(),
@@ -289,19 +381,13 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                 found_at: callable_source_span,
             })
         } else {
-            callable.call(&argument_vals)
+            callable.call(self, &argument_vals)
         }
     }
-    fn run_with_new_child_environment<T, F: Fn(&mut Self) -> T>(&mut self, run: F) -> T {
-        replace_with_or_default(&mut self.environment, |old_env| {
-            Environment::new_with_parent(old_env)
-        });
+    fn run_with_env<T, F: Fn(&mut Self) -> T>(&mut self, new_env: EnvironmentRef, run: F) -> T {
+        let old_env = mem::replace(&mut self.environment, new_env);
         let result = run(self);
-        replace_with_or_default(&mut self.environment, |old_env| {
-            *old_env
-                .parent
-                .expect("popped environment more times than pushed")
-        });
+        self.environment = old_env;
         result
     }
     fn get_next_value_id(&mut self) -> usize {
@@ -317,6 +403,8 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
     ) {
         let id = self.get_next_value_id();
         self.environment
+            .as_ref()
+            .borrow_mut()
             .define(
                 name,
                 RuntimeValue::NativeFunction(Rc::new(LoxNativeFunction {
@@ -332,7 +420,11 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
 
 trait LoxCallable {
     fn arity(&self) -> usize;
-    fn call(&self, args: &[RuntimeValue]) -> Result<RuntimeValue, RuntimeError>;
+    fn call<W: Write>(
+        &self,
+        interpreter: &mut Interpreter<W>,
+        args: &[RuntimeValue],
+    ) -> Result<RuntimeValue, RuntimeError>;
 }
 
 pub struct LoxNativeFunction {
@@ -346,7 +438,11 @@ impl LoxCallable for LoxNativeFunction {
         self.arity
     }
 
-    fn call(&self, args: &[RuntimeValue]) -> Result<RuntimeValue, RuntimeError> {
+    fn call<W: Write>(
+        &self,
+        _: &mut Interpreter<W>,
+        args: &[RuntimeValue],
+    ) -> Result<RuntimeValue, RuntimeError> {
         (self.implementation)(args)
     }
 }
@@ -366,16 +462,83 @@ impl PartialEq for LoxNativeFunction {
     }
 }
 
+pub struct LoxFunction {
+    id: usize,
+    declaration: Rc<FunDecl>,
+    closure: EnvironmentRef,
+}
+impl LoxCallable for LoxFunction {
+    fn arity(&self) -> usize {
+        self.declaration.parameters.len()
+    }
+
+    fn call<W: Write>(
+        &self,
+        interpreter: &mut Interpreter<W>,
+        args: &[RuntimeValue],
+    ) -> Result<RuntimeValue, RuntimeError> {
+        let mut call_env = Environment::new_with_parent(self.closure.clone());
+        for (name, value) in self.declaration.parameters.iter().zip_eq(args) {
+            dbg!(name);
+            call_env.define(&name.name, value.clone()).map_err(|_| {
+                RuntimeError::AlreadyDefinedVariable {
+                    name: name.name.clone(),
+                    found_at: name.source_span(),
+                }
+            })?;
+        }
+        interpreter.run_with_env(
+            call_env.wrap(),
+            |interpreter| -> Result<RuntimeValue, RuntimeError> {
+                for stmt in self.declaration.body.iter() {
+                    match interpreter.eval_decl_or_stmt(stmt) {
+                        Completion::Normal(_) => continue,
+                        Completion::Return(value) => return Ok(value),
+                        Completion::Error(err) => return Err(err),
+                    }
+                }
+                return Ok(RuntimeValue::nil());
+            },
+        )
+    }
+}
+impl Display for LoxFunction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "fun {}({}) {{ ... }}",
+            self.declaration.name.name,
+            self.declaration
+                .parameters
+                .iter()
+                .map(|param| &param.name)
+                .join(", ")
+        )
+    }
+}
+impl Debug for LoxFunction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+impl PartialEq for LoxFunction {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
 #[derive(Clone, PartialEq)]
 pub enum RuntimeValue {
     Basic(Value),
     NativeFunction(Rc<LoxNativeFunction>),
+    Function(Rc<LoxFunction>),
 }
 impl Display for RuntimeValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RuntimeValue::Basic(value) => Display::fmt(value, f),
             RuntimeValue::NativeFunction(value) => Display::fmt(value, f),
+            RuntimeValue::Function(value) => Display::fmt(value, f),
         }
     }
 }
@@ -384,6 +547,7 @@ impl Debug for RuntimeValue {
         match self {
             Self::Basic(value) => Debug::fmt(value, f),
             Self::NativeFunction(value) => Debug::fmt(value, f),
+            Self::Function(value) => Debug::fmt(value, f),
         }
     }
 }
@@ -424,6 +588,7 @@ impl RuntimeValue {
         match self {
             RuntimeValue::Basic(value) => value.type_of(),
             RuntimeValue::NativeFunction(_) => ValueType::Function,
+            RuntimeValue::Function(_) => ValueType::Function,
         }
     }
     fn cast_number<F: Fn(ValueDescriptor, ValueType) -> RuntimeError>(
@@ -457,18 +622,21 @@ impl RuntimeValue {
 
 struct Environment {
     values: HashMap<String, RuntimeValue>,
-    parent: Option<Box<Environment>>,
+    parent: Option<EnvironmentRef>,
 }
 impl Environment {
+    fn wrap(self) -> EnvironmentRef {
+        Rc::new(RefCell::new(self))
+    }
     fn new() -> Self {
         Self {
             values: HashMap::new(),
             parent: None,
         }
     }
-    fn new_with_parent(parent: Self) -> Self {
+    fn new_with_parent(parent: EnvironmentRef) -> Self {
         Environment {
-            parent: Some(Box::new(parent)),
+            parent: Some(parent),
             ..Default::default()
         }
     }
@@ -478,7 +646,7 @@ impl Environment {
     fn is_local(&self) -> bool {
         !self.is_global()
     }
-    fn define(&mut self, name: &str, value: RuntimeValue) -> Result<&RuntimeValue, ()> {
+    fn define(&mut self, name: &str, value: RuntimeValue) -> Result<RuntimeValue, ()> {
         if self.values.contains_key(name) && self.is_local() {
             Err(())
         } else {
@@ -486,34 +654,36 @@ impl Environment {
             Ok(self.get(name).unwrap())
         }
     }
-    fn get(&self, name: &str) -> Option<&RuntimeValue> {
-        self.values
-            .get(name)
-            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(name)))
+    fn get(&self, name: &str) -> Option<RuntimeValue> {
+        self.values.get(name).map(Clone::clone).or_else(|| {
+            self.parent
+                .as_ref()
+                .and_then(|parent| parent.borrow().get(name))
+        })
     }
-    fn assign(&mut self, name: &str, value: RuntimeValue) -> Option<&RuntimeValue> {
+    fn assign(&mut self, name: &str, value: RuntimeValue) -> Option<RuntimeValue> {
         if let Some(target) = self.values.get_mut(name) {
             *target = value;
             Some(self.get(name).unwrap())
         } else if let Some(parent) = &mut self.parent {
-            parent.assign(name, value)
+            parent.as_ref().borrow_mut().assign(name, value)
         } else {
             None
         }
     }
 }
 
-fn try_for_each_and_return_last<In, Out, Err, F: FnMut(&In) -> Result<Out, Err>>(
+fn try_for_each_and_return_last<In, F: FnMut(&In) -> Completion>(
     items: &[In],
-    default: Out,
+    default: RuntimeValue,
     mut run: F,
-) -> Result<Out, Err> {
+) -> Completion {
     for item in &items[..items.len().max(1) - 1] {
         run(item)?;
     }
     match items.last() {
         Some(item) => run(item),
-        None => Ok(default),
+        None => Completion::Normal(default),
     }
 }
 

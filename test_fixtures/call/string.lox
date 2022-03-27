@@ -1,1 +1,1 @@
-"str"(); // RuntimeError: Can only call functions and classes.
+"str"(); // RuntimeError: cannot call a string from l1c1 to l1c8

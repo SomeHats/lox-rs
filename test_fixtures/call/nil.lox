@@ -1,1 +1,1 @@
-nil(); // RuntimeError: Can only call functions and classes.
+nil(); // RuntimeError: cannot call nil from l1c1 to l1c6

@@ -17,7 +17,7 @@ use miette::{miette, IntoDiagnostic, Result};
 use regex::Regex;
 
 lazy_static! {
-    static ref IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((benchmark|call|class|closure|constructor|field|function|inheritance|limit|method|regression|return|super|this)/|(variable/(early_bound|local_from_method|duplicate_parameter|use_this_as_var|collide_with_parameter|use_local_in_initializer)|operator/(not_class|not|equals_class|equals_method)|assignment/to_this|while/(return_closure|return_inside|closure_in_body|class_in_body|fun_in_body)|for/(return_closure|return_inside|syntax|closure_in_body|class_in_body|fun_in_body)).lox)").unwrap();
+    static ref IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((benchmark|class|constructor|field|inheritance|limit|method|regression|return|super|this)/|(variable/(early_bound|local_from_method|use_this_as_var|use_local_in_initializer|duplicate_parameter)|operator/(not_class|equals_class|equals_method)|assignment/to_this|while/class_in_body|for/class_in_body|closure/(close_over_method_parameter|assign_to_shadowed_later)|function/local_mutual_recursion|call/object).lox)").unwrap();
 }
 
 fn main() {
@@ -332,6 +332,22 @@ impl FmtError for ParserError {
                 "ParserError: InvalidAssignmentTarget {}",
                 format_span(found_at, source)
             ),
+            ParserError::TooManyCallArgs {
+                callee_at,
+                too_many_args_at,
+            } => format!(
+                "ParserError: TooManyCallArgs callee {} arg {}",
+                format_span(callee_at, source),
+                format_span(too_many_args_at, source)
+            ),
+            ParserError::TooManyFunParams {
+                decl_at,
+                too_many_params_at,
+            } => format!(
+                "ParserError: TooManyFunParams decl {} param {}",
+                format_span(decl_at, source),
+                format_span(too_many_params_at, source)
+            ),
         }
     }
 }
@@ -361,6 +377,24 @@ impl FmtError for RuntimeError {
                 "RuntimeError: {} AlreadyDefinedVariable {}",
                 format_span(found_at, source),
                 name,
+            ),
+            RuntimeError::UnexpectedCallArity {
+                expected_arity,
+                actual_arity,
+                found_at,
+            } => format!(
+                "RuntimeError: expected call arity {} got {} {}",
+                expected_arity,
+                actual_arity,
+                format_span(found_at, source)
+            ),
+            RuntimeError::UncallableValue {
+                actual_type,
+                found_at,
+            } => format!(
+                "RuntimeError: cannot call {} {}",
+                actual_type.fmt_a(),
+                format_span(found_at, source)
             ),
         }
     }

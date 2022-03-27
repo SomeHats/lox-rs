@@ -1,1 +1,1 @@
-true(); // RuntimeError: Can only call functions and classes.
+true(); // RuntimeError: cannot call a boolean from l1c1 to l1c7

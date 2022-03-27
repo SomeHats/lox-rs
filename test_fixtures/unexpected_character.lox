@@ -1,3 +1,3 @@
 // ScannerError: UnexpectedCharacter | at l3c7
-// ParserError: ExpectedSemicolon found OpenParen at l3c4
+// ParserError: UnexpectedToken found Identifier at l3c9 expected CloseParen
 foo(a | b);

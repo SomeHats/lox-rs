@@ -2,6 +2,8 @@ use miette::{Diagnostic, Result};
 use std::{iter::Peekable, rc::Rc};
 use thiserror::Error;
 
+const MAX_FUN_ARGS: usize = 254;
+
 use crate::{
     ast::*,
     scanner::{Token, TokenType, TokenTypeName},
@@ -43,12 +45,19 @@ pub enum ParserError {
         #[label("Cannot assign to this expression")]
         found_at: SourceSpan,
     },
-    #[error("Can't have more than 254 arguments to function")]
+    #[error("Can't have more than {} arguments to a function", MAX_FUN_ARGS)]
     TooManyCallArgs {
         #[label("The function call is here")]
         callee_at: SourceSpan,
-        #[label("The 255th argument is here")]
+        #[label("The {}th argument is here", MAX_FUN_ARGS + 1)]
         too_many_args_at: SourceSpan,
+    },
+    #[error("Can't have more than {} parameters to a function", MAX_FUN_ARGS)]
+    TooManyFunParams {
+        #[label("The function is defined here")]
+        decl_at: SourceSpan,
+        #[label("The {}th paramter is here", MAX_FUN_ARGS + 1)]
+        too_many_params_at: SourceSpan,
     },
 }
 
@@ -112,6 +121,9 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         if self.consume_token(TokenType::Var).is_some() {
             return Ok(DeclOrStmt::Decl(Decl::Var(self.parse_var_decl()?)));
         }
+        if self.consume_token(TokenType::Fun).is_some() {
+            return Ok(DeclOrStmt::Decl(Decl::Fun(Rc::new(self.parse_fun_decl()?))));
+        }
         Ok(DeclOrStmt::Stmt(self.parse_stmt()?))
     }
     fn parse_var_decl(&mut self) -> Result<VarDecl, ParserError> {
@@ -131,6 +143,43 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
             initializer,
         })
     }
+    fn parse_fun_decl(&mut self) -> Result<FunDecl, ParserError> {
+        let fun_span = self.extract_current_token_span(TokenType::Fun);
+        let name = self.parse_identifier()?;
+        self.consume_token_or_default_error(&TokenType::OpenParen)?;
+        let parameters = match self.consume_token(TokenType::CloseParen) {
+            Some(_) => Vec::new(),
+            None => {
+                let mut parameters = Vec::new();
+                loop {
+                    let parameter = self.parse_identifier()?;
+                    parameters.push(parameter);
+                    if self.consume_token(TokenType::Comma).is_none() {
+                        break;
+                    }
+                }
+                self.consume_token_or_default_error(&TokenType::CloseParen)?;
+                parameters
+            }
+        };
+
+        if let Some(param) = parameters.get(MAX_FUN_ARGS + 1) {
+            self.recovered_errors.push(ParserError::TooManyFunParams {
+                decl_at: SourceSpan::range(fun_span.start(), name.source_span().end()),
+                too_many_params_at: param.source_span(),
+            });
+        }
+
+        self.consume_token_or_default_error(&TokenType::OpenBrace)?;
+        let body_block = self.parse_block_stmt()?;
+
+        Ok(FunDecl {
+            source_span: SourceSpan::range(fun_span.start(), body_block.source_span().end()),
+            name,
+            parameters,
+            body: body_block.body,
+        })
+    }
     fn parse_stmt(&mut self) -> Result<Stmt, ParserError> {
         if self.consume_token(TokenType::If).is_some() {
             return Ok(Stmt::If(self.parse_if_stmt()?));
@@ -141,32 +190,19 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         if self.consume_token(TokenType::For).is_some() {
             return self.parse_for_stmt();
         }
-        if let Some(print_span) = self.consume_token_to_span(TokenType::Print) {
-            let expression = self.parse_expr()?;
-            self.consume_statement_end_semicolon()?;
-            return Ok(Stmt::Print(PrintStmt {
-                expression,
-                print_span,
-            }));
+        if self.consume_token(TokenType::Print).is_some() {
+            return Ok(Stmt::Print(self.parse_print_stmt()?));
         }
-
-        if let Some(open_span) = self.consume_token_to_span(TokenType::OpenBrace) {
-            let mut statements = Vec::new();
-            loop {
-                if let Some(close_span) = self.consume_token_to_span(TokenType::CloseBrace) {
-                    return Ok(Stmt::Block(BlockStmt {
-                        body: statements,
-                        open_span,
-                        close_span,
-                    }));
-                } else {
-                    statements.push(self.parse_decl_or_stmt()?);
-                }
-            }
+        if self.consume_token(TokenType::Return).is_some() {
+            return Ok(Stmt::Return(self.parse_return_stmt()?));
+        }
+        if self.consume_token(TokenType::OpenBrace).is_some() {
+            return Ok(Stmt::Block(self.parse_block_stmt()?));
         }
 
         Ok(Stmt::Expr(self.parse_expr_stmt()?))
     }
+
     fn parse_expr_stmt(&mut self) -> Result<ExprStmt, ParserError> {
         let expression = self.parse_expr()?;
         self.consume_statement_end_semicolon()?;
@@ -191,6 +227,30 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
             condition,
             then_branch,
             else_branch,
+        })
+    }
+    fn parse_print_stmt(&mut self) -> Result<PrintStmt, ParserError> {
+        let print_span = self.extract_current_token_span(TokenType::Print);
+        let expression = self.parse_expr()?;
+        self.consume_statement_end_semicolon()?;
+        Ok(PrintStmt {
+            expression,
+            print_span,
+        })
+    }
+    fn parse_return_stmt(&mut self) -> Result<ReturnStmt, ParserError> {
+        let return_span = self.extract_current_token_span(TokenType::Return);
+        let expression = match self.consume_token(TokenType::Semicolon) {
+            Some(_) => None,
+            None => {
+                let expression = self.parse_expr()?;
+                self.consume_statement_end_semicolon()?;
+                Some(expression)
+            }
+        };
+        Ok(ReturnStmt {
+            expression,
+            return_span,
         })
     }
     fn parse_while_stmt(&mut self) -> Result<WhileStmt, ParserError> {
@@ -266,6 +326,21 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         } else {
             body
         })
+    }
+    fn parse_block_stmt(&mut self) -> Result<BlockStmt, ParserError> {
+        let open_span = self.extract_current_token_span(TokenType::OpenBrace);
+        let mut statements = Vec::new();
+        loop {
+            if let Some(close_span) = self.consume_token_to_span(TokenType::CloseBrace) {
+                return Ok(BlockStmt {
+                    body: statements,
+                    open_span,
+                    close_span,
+                });
+            } else {
+                statements.push(self.parse_decl_or_stmt()?);
+            }
+        }
     }
     fn consume_statement_end_semicolon(&mut self) -> Result<(), ParserError> {
         let is_repl = self.opts.is_repl;
@@ -436,12 +511,6 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
                     None => {
                         loop {
                             let argument = self.parse_expr()?;
-                            if arguments.len() == 254 {
-                                self.recovered_errors.push(ParserError::TooManyCallArgs {
-                                    callee_at: expr.source_span(),
-                                    too_many_args_at: argument.source_span(),
-                                })
-                            }
                             arguments.push(argument);
                             if self.consume_token(TokenType::Comma).is_none() {
                                 break;
@@ -451,6 +520,12 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
                             .span
                     }
                 };
+                if let Some(argument) = arguments.get(MAX_FUN_ARGS + 1) {
+                    self.recovered_errors.push(ParserError::TooManyCallArgs {
+                        callee_at: expr.source_span(),
+                        too_many_args_at: argument.source_span(),
+                    })
+                }
                 Expr::Call(CallExpr {
                     callee: Box::new(expr),
                     arguments,

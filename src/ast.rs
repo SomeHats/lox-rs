@@ -6,7 +6,7 @@ use std::{
 
 use itertools::Itertools;
 
-use crate::{source::SourceSpan, value::Value};
+use crate::{source::SourceSpan, value::Value, SourceReference};
 
 #[derive(Debug)]
 pub struct WithSpan<T> {
@@ -40,6 +40,7 @@ pub trait AstNode {
 #[derive(Debug)]
 pub struct Program {
     pub statements: Vec<DeclOrStmt>,
+    pub source_reference: SourceReference,
 }
 impl Display for Program {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

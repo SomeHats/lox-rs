@@ -1,2 +1,2 @@
 fun foo(a) { var a; }
-foo(1);
+foo(1); // RuntimeError: at l1c18 AlreadyDefinedVariable a

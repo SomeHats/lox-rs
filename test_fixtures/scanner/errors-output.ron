@@ -25,6 +25,14 @@
                     1,
                 ),
             },
+            source_code: SourceReference(
+                SourceReferenceInner {
+                    named_source: NamedSource {
+                        name: "errors-input.lox",
+                        source: "<redacted>",
+                    ,
+                },
+            ),
         },
     ),
     Ok(
@@ -47,6 +55,14 @@
             character: ':',
             at: SourceOffset(
                 37,
+            ),
+            source_code: SourceReference(
+                SourceReferenceInner {
+                    named_source: NamedSource {
+                        name: "errors-input.lox",
+                        source: "<redacted>",
+                    ,
+                },
             ),
         },
     ),
@@ -75,6 +91,14 @@
                     12,
                 ),
             },
+            source_code: SourceReference(
+                SourceReferenceInner {
+                    named_source: NamedSource {
+                        name: "errors-input.lox",
+                        source: "<redacted>",
+                    ,
+                },
+            ),
         },
     ),
 ]

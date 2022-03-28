@@ -9,6 +9,7 @@ use crate::{
     scanner::{Token, TokenType, TokenTypeName},
     source::SourceSpan,
     value::Value,
+    SourceReference,
 };
 
 #[derive(Error, Diagnostic, Debug)]
@@ -20,18 +21,24 @@ pub enum ParserError {
         found_token_type: TokenTypeName,
         #[label("Found {found_token_type:?} instead")]
         found_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
     },
     #[error("Expected a semi colon at the end of this statement")]
     ExpectedSemicolor {
         actual: TokenTypeName,
         #[label("Found {actual:?} instead of a semicolon (;)")]
         found_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
     },
     #[error("Unexpected token in expression")]
     UnexpectedExpressionToken {
         actual: TokenTypeName,
         #[label("Found {actual:?} instead of a number, variable, unary, etc.")]
         found_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
     },
     #[error("Unexpected token")]
     UnexpectedToken {
@@ -39,11 +46,15 @@ pub enum ParserError {
         expected: TokenTypeName,
         #[label("Found {actual:?} instead of {expected:?}")]
         found_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
     },
     #[error("Invalid assignment target")]
     InvalidAssignmentTarget {
         #[label("Cannot assign to this expression")]
         found_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
     },
     #[error("Can't have more than {} arguments to a function", MAX_FUN_ARGS)]
     TooManyCallArgs {
@@ -51,6 +62,8 @@ pub enum ParserError {
         callee_at: SourceSpan,
         #[label("The {}th argument is here", MAX_FUN_ARGS + 1)]
         too_many_args_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
     },
     #[error("Can't have more than {} parameters to a function", MAX_FUN_ARGS)]
     TooManyFunParams {
@@ -58,6 +71,8 @@ pub enum ParserError {
         decl_at: SourceSpan,
         #[label("The {}th paramter is here", MAX_FUN_ARGS + 1)]
         too_many_params_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
     },
 }
 
@@ -77,15 +92,24 @@ pub struct Parser<Stream: Iterator<Item = Token>> {
     current_token: Option<Token>,
     at_end: bool,
     recovered_errors: Vec<ParserError>,
+    source_reference: SourceReference,
 }
 
 impl<Stream: Iterator<Item = Token>> Parser<Stream> {
-    pub fn parse(token_stream: Stream, opts: ParserOpts) -> (Program, Vec<ParserError>) {
-        let mut parser = Self::new(token_stream, opts);
+    pub fn parse(
+        token_stream: Stream,
+        source_reference: SourceReference,
+        opts: ParserOpts,
+    ) -> (Program, Vec<ParserError>) {
+        let mut parser = Self::new(token_stream, source_reference, opts);
         let program = parser.parse_program();
         (program, parser.recovered_errors)
     }
-    fn new(token_stream: Stream, opts: ParserOpts) -> Parser<impl Iterator<Item = Token>> {
+    fn new(
+        token_stream: Stream,
+        source_reference: SourceReference,
+        opts: ParserOpts,
+    ) -> Parser<impl Iterator<Item = Token>> {
         Parser {
             opts,
             token_stream: token_stream
@@ -94,6 +118,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
             current_token: None,
             at_end: false,
             recovered_errors: Vec::new(),
+            source_reference,
         }
     }
 }
@@ -115,7 +140,10 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
                 }
             }
         }
-        Program { statements }
+        Program {
+            statements,
+            source_reference: self.source_reference.clone(),
+        }
     }
     fn parse_decl_or_stmt(&mut self) -> Result<DeclOrStmt, ParserError> {
         if self.consume_token(TokenType::Var).is_some() {
@@ -167,6 +195,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
             self.recovered_errors.push(ParserError::TooManyFunParams {
                 decl_at: SourceSpan::range(fun_span.start(), name.source_span().end()),
                 too_many_params_at: param.source_span(),
+                source_code: self.source_reference.clone(),
             });
         }
 
@@ -344,16 +373,20 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
     }
     fn consume_statement_end_semicolon(&mut self) -> Result<(), ParserError> {
         let is_repl = self.opts.is_repl;
-        let result = self.consume_token_or_error(&TokenType::Semicolon, |token| {
+        let result = self.consume_token_or_error(&TokenType::Semicolon, |token, source_code| {
             ParserError::ExpectedSemicolor {
                 actual: (&token.token_type).into(),
                 found_at: token.span,
+                source_code,
             }
         });
         if is_repl && result.is_err() {
-            self.consume_token_or_error(&TokenType::Eof, |token| ParserError::ExpectedSemicolor {
-                actual: (&token.token_type).into(),
-                found_at: token.span,
+            self.consume_token_or_error(&TokenType::Eof, |token, source_code| {
+                ParserError::ExpectedSemicolor {
+                    actual: (&token.token_type).into(),
+                    found_at: token.span,
+                    source_code,
+                }
             })?;
             Ok(())
         } else {
@@ -365,11 +398,15 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         self.parse_assignment_expr()
     }
     fn parse_assignment_expr(&mut self) -> Result<Expr, ParserError> {
-        fn expr_to_assignment_target(expr: Expr) -> Result<Identifier, ParserError> {
+        fn expr_to_assignment_target(
+            expr: Expr,
+            source_reference: &SourceReference,
+        ) -> Result<Identifier, ParserError> {
             match expr {
                 Expr::Variable(var) => Ok(var.identifier),
                 other => Err(ParserError::InvalidAssignmentTarget {
                     found_at: other.source_span(),
+                    source_code: source_reference.clone(),
                 }),
             }
         }
@@ -377,7 +414,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         let expr = self.parse_or_expr()?;
         if self.consume_token(TokenType::Equal).is_some() {
             let value = self.parse_expr()?;
-            let target = expr_to_assignment_target(expr)?;
+            let target = expr_to_assignment_target(expr, &self.source_reference)?;
             Ok(Expr::Assignment(AssignmentExpr {
                 target,
                 value: Box::new(value),
@@ -524,6 +561,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
                     self.recovered_errors.push(ParserError::TooManyCallArgs {
                         callee_at: expr.source_span(),
                         too_many_args_at: argument.source_span(),
+                        source_code: self.source_reference.clone(),
                     })
                 }
                 Expr::Call(CallExpr {
@@ -566,11 +604,12 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
 
         if let Some(opening_span) = self.consume_token_to_span(TokenType::OpenParen) {
             let expr = self.parse_expr()?;
-            self.consume_token_or_error(&TokenType::CloseParen, |tok| {
+            self.consume_token_or_error(&TokenType::CloseParen, |tok, source_code| {
                 ParserError::UnmatchedParenthesis {
                     found_token_type: (&tok.token_type).into(),
                     found_at: tok.span,
                     opener: opening_span,
+                    source_code,
                 }
             })?;
             return Ok(Expr::Grouping(GroupingExpr {
@@ -586,6 +625,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         Err(ParserError::UnexpectedExpressionToken {
             actual: (&unknown_tok.token_type).into(),
             found_at: unknown_tok.span,
+            source_code: self.source_reference.clone(),
         })
     }
     fn parse_identifier(&mut self) -> Result<Identifier, ParserError> {
@@ -600,6 +640,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
                     actual: other.into(),
                     expected: TokenTypeName::Identifier,
                     found_at: next.span,
+                    source_code: self.source_reference.clone(),
                 }),
             }
         };
@@ -676,7 +717,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
     fn consume_token_to_span(&mut self, token_type: TokenType) -> Option<SourceSpan> {
         self.consume_token(token_type).map(|token| token.span)
     }
-    fn consume_token_or_error<F: Fn(&Token) -> ParserError>(
+    fn consume_token_or_error<F: Fn(&Token, SourceReference) -> ParserError>(
         &mut self,
         token_type: &TokenType,
         make_err: F,
@@ -686,18 +727,24 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
                 self.advance();
                 Ok(self.current_token.as_ref().unwrap())
             }
-            Some(other_token) => Err(make_err(other_token)),
-            None => Err(make_err(self.current_token.as_ref().unwrap())),
+            Some(other_token) => Err(make_err(other_token, self.source_reference.clone())),
+            None => Err(make_err(
+                self.current_token.as_ref().unwrap(),
+                self.source_reference.clone(),
+            )),
         }
     }
     fn consume_token_or_default_error(
         &mut self,
         token_type: &TokenType,
     ) -> Result<&Token, ParserError> {
-        self.consume_token_or_error(token_type, |actual| ParserError::UnexpectedToken {
-            actual: (&actual.token_type).into(),
-            expected: token_type.into(),
-            found_at: actual.span,
+        self.consume_token_or_error(token_type, |actual, source_code| {
+            ParserError::UnexpectedToken {
+                actual: (&actual.token_type).into(),
+                expected: token_type.into(),
+                found_at: actual.span,
+                source_code,
+            }
         })
     }
     fn extract_current_token_span(&self, token_type: TokenType) -> SourceSpan {

@@ -12,6 +12,7 @@ use crate::{
     ast::*,
     source::SourceSpan,
     value::{Value, ValueDescriptor, ValueType},
+    SourceReference,
 };
 use itertools::Itertools;
 use miette::{Diagnostic, Result};
@@ -30,18 +31,24 @@ pub enum RuntimeError {
         operator: String,
         #[label("the '{operator}' operator expected {}", .expected_type.fmt_a())]
         operator_loc: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
     },
     #[error("Undefined variable {name}")]
     UndefinedVariable {
         name: String,
         #[label("found here")]
         found_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
     },
     #[error("Already a variable named {name} in this scope")]
     AlreadyDefinedVariable {
         name: String,
         #[label("'{name}' here is already a variable")]
         found_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
     },
     #[error("Expected {expected_arity} arguments but got {actual_arity}")]
     UnexpectedCallArity {
@@ -49,12 +56,16 @@ pub enum RuntimeError {
         actual_arity: usize,
         #[label("On this function call")]
         found_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
     },
     #[error("Can only call functions and classes")]
     UncallableValue {
         actual_type: ValueType,
         #[label("Attempted to call {} here", .actual_type.fmt_a())]
         found_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
     },
 }
 
@@ -104,6 +115,11 @@ impl From<Result<RuntimeValue, RuntimeError>> for Completion {
     }
 }
 
+#[derive(Debug, Clone)]
+struct Ctx {
+    source_code: SourceReference,
+}
+
 pub struct Interpreter<'a, Stdout: Write> {
     environment: EnvironmentRef,
     stdout: &'a mut Stdout,
@@ -114,7 +130,7 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
     pub fn new(stdout: &'a mut Stdout) -> Self {
         let globals = Rc::new(RefCell::new(Environment::new()));
         let mut interpreter = Self {
-            environment: globals.clone(),
+            environment: globals,
             stdout,
             next_value_id: 0,
         };
@@ -123,9 +139,12 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
         interpreter
     }
     pub fn interpret(&mut self, program: &Program) -> Result<RuntimeValue, RuntimeError> {
+        let ctx = Ctx {
+            source_code: program.source_reference.clone(),
+        };
         let result =
             try_for_each_and_return_last(&program.statements, RuntimeValue::nil(), |stmt| {
-                self.eval_decl_or_stmt(stmt)
+                self.eval_decl_or_stmt(stmt, &ctx)
             });
         match result {
             Completion::Normal(value) => Ok(value),
@@ -133,15 +152,15 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
             Completion::Error(err) => Err(err),
         }
     }
-    fn eval_decl_or_stmt(&mut self, decl_or_stmt: &DeclOrStmt) -> Completion {
+    fn eval_decl_or_stmt(&mut self, decl_or_stmt: &DeclOrStmt, ctx: &Ctx) -> Completion {
         match decl_or_stmt {
-            DeclOrStmt::Decl(decl) => self.eval_decl(decl).into(),
-            DeclOrStmt::Stmt(stmt) => self.eval_stmt(stmt),
+            DeclOrStmt::Decl(decl) => self.eval_decl(decl, ctx).into(),
+            DeclOrStmt::Stmt(stmt) => self.eval_stmt(stmt, ctx),
         }
     }
-    fn eval_decl(&mut self, decl: &Decl) -> Result<RuntimeValue, RuntimeError> {
+    fn eval_decl(&mut self, decl: &Decl, ctx: &Ctx) -> Result<RuntimeValue, RuntimeError> {
         match decl {
-            Decl::Var(decl) => self.eval_var_decl(decl),
+            Decl::Var(decl) => self.eval_var_decl(decl, ctx),
             Decl::Fun(decl) => {
                 let id = self.get_next_value_id();
                 self.environment
@@ -153,6 +172,7 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                             id,
                             declaration: decl.clone(),
                             closure: self.environment.clone(),
+                            ctx: ctx.clone(),
                         })),
                     )
                     .map_err(|_| RuntimeError::AlreadyDefinedVariable {
@@ -161,34 +181,34 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                             decl.source_span.start(),
                             decl.name.source_span.end(),
                         ),
+                        source_code: ctx.source_code.clone(),
                     })
             }
         }
     }
-    fn eval_var_decl(&mut self, decl: &VarDecl) -> Result<RuntimeValue, RuntimeError> {
+    fn eval_var_decl(&mut self, decl: &VarDecl, ctx: &Ctx) -> Result<RuntimeValue, RuntimeError> {
         let initial_value = decl
             .initializer
             .as_ref()
-            .map(|expr| self.eval_expr(expr))
+            .map(|expr| self.eval_expr(expr, ctx))
             .transpose()?
             .unwrap_or_else(RuntimeValue::nil);
 
-        Ok(self
-            .environment
+        self.environment
             .as_ref()
             .borrow_mut()
             .define(&decl.identifier.name, initial_value)
             .map_err(|_| RuntimeError::AlreadyDefinedVariable {
                 name: decl.identifier.name.clone(),
                 found_at: decl.identifier.source_span(),
-            })?
-            .clone())
+                source_code: ctx.source_code.clone(),
+            })
     }
-    fn eval_stmt(&mut self, stmt: &Stmt) -> Completion {
+    fn eval_stmt(&mut self, stmt: &Stmt, ctx: &Ctx) -> Completion {
         match stmt {
-            Stmt::Expr(stmt) => self.eval_expr(&stmt.expression).into(),
+            Stmt::Expr(stmt) => self.eval_expr(&stmt.expression, ctx).into(),
             Stmt::Print(stmt) => {
-                let value = Completion::from(self.eval_expr(&stmt.expression))?;
+                let value = Completion::from(self.eval_expr(&stmt.expression, ctx))?;
                 writeln!(self.stdout, "{}", value).unwrap();
                 Completion::Normal(value)
             }
@@ -196,42 +216,42 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                 Environment::new_with_parent(self.environment.clone()).wrap(),
                 |this| {
                     try_for_each_and_return_last(&stmt.body, RuntimeValue::nil(), |stmt| {
-                        this.eval_decl_or_stmt(stmt)
+                        this.eval_decl_or_stmt(stmt, ctx)
                     })
                 },
             ),
             Stmt::If(stmt) => {
-                if Completion::from(self.eval_expr(&stmt.condition))?.cast_boolean() {
-                    self.eval_stmt(&stmt.then_branch)?;
+                if Completion::from(self.eval_expr(&stmt.condition, ctx))?.cast_boolean() {
+                    self.eval_stmt(&stmt.then_branch, ctx)?;
                 } else if let Some(else_branch) = &stmt.else_branch {
-                    self.eval_stmt(else_branch)?;
+                    self.eval_stmt(else_branch, ctx)?;
                 }
                 Completion::Normal(RuntimeValue::nil())
             }
             Stmt::While(stmt) => {
-                while Completion::from(self.eval_expr(&stmt.condition))?.cast_boolean() {
-                    self.eval_stmt(&stmt.body)?;
+                while Completion::from(self.eval_expr(&stmt.condition, ctx))?.cast_boolean() {
+                    self.eval_stmt(&stmt.body, ctx)?;
                 }
                 Completion::Normal(RuntimeValue::nil())
             }
             Stmt::Return(stmt) => {
                 let value = match &stmt.expression {
-                    Some(expression) => Completion::from(self.eval_expr(expression))?,
+                    Some(expression) => Completion::from(self.eval_expr(expression, ctx))?,
                     None => RuntimeValue::nil(),
                 };
                 Completion::Return(value)
             }
         }
     }
-    pub fn eval_expr(&mut self, expr: &Expr) -> Result<RuntimeValue, RuntimeError> {
+    fn eval_expr(&mut self, expr: &Expr, ctx: &Ctx) -> Result<RuntimeValue, RuntimeError> {
         match expr {
             Expr::Binary(BinaryExpr {
                 left,
                 right,
                 operator,
             }) => {
-                let left_val = self.eval_expr(left)?;
-                let mut right_val = || self.eval_expr(right);
+                let left_val = self.eval_expr(left, ctx)?;
+                let mut right_val = || self.eval_expr(right, ctx);
                 let make_left_err =
                     |expected: ValueDescriptor, actual: ValueType| RuntimeError::OperandTypeError {
                         expected_type: expected,
@@ -239,6 +259,7 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                         operand_loc: left.source_span(),
                         operator: operator.to_string(),
                         operator_loc: operator.source_span(),
+                        source_code: ctx.source_code.clone(),
                     };
                 let make_right_err =
                     |expected: ValueDescriptor, actual: ValueType| RuntimeError::OperandTypeError {
@@ -247,6 +268,7 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                         operand_loc: right.source_span(),
                         operator: operator.to_string(),
                         operator_loc: operator.source_span(),
+                        source_code: ctx.source_code.clone(),
                     };
                 Ok(match operator.inner() {
                     BinaryOperator::Plus => match left_val {
@@ -310,7 +332,7 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                 })
             }
             Expr::Unary(UnaryExpr { operator, right }) => {
-                let right_val = self.eval_expr(right)?;
+                let right_val = self.eval_expr(right, ctx)?;
                 Ok(match operator.inner() {
                     UnaryOperator::Minus => (-right_val.cast_number(|expected, actual| {
                         RuntimeError::OperandTypeError {
@@ -319,6 +341,7 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                             operand_loc: right.source_span(),
                             operator: operator.inner().to_string(),
                             operator_loc: operator.source_span(),
+                            source_code: ctx.source_code.clone(),
                         }
                     })?)
                     .into(),
@@ -333,10 +356,11 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                 .ok_or_else(|| RuntimeError::UndefinedVariable {
                     name: identifier.name.clone(),
                     found_at: identifier.source_span(),
+                    source_code: ctx.source_code.clone(),
                 }),
-            Expr::Grouping(GroupingExpr { expr }) => self.eval_expr(expr),
+            Expr::Grouping(GroupingExpr { expr }) => self.eval_expr(expr, ctx),
             Expr::Assignment(AssignmentExpr { target, value }) => {
-                let value = self.eval_expr(value)?;
+                let value = self.eval_expr(value, ctx)?;
                 self.environment
                     .as_ref()
                     .borrow_mut()
@@ -344,20 +368,25 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                     .ok_or_else(|| RuntimeError::UndefinedVariable {
                         name: target.name.clone(),
                         found_at: target.source_span(),
+                        source_code: ctx.source_code.clone(),
                     })
             }
             Expr::Call(call_expr) => {
-                let callee_val = self.eval_expr(&call_expr.callee)?;
+                let callee_val = self.eval_expr(&call_expr.callee, ctx)?;
                 match callee_val {
-                    RuntimeValue::NativeFunction(native_fn) => {
-                        self.eval_call(call_expr.source_span(), &*native_fn, &call_expr.arguments)
-                    }
+                    RuntimeValue::NativeFunction(native_fn) => self.eval_call(
+                        call_expr.source_span(),
+                        &*native_fn,
+                        &call_expr.arguments,
+                        ctx,
+                    ),
                     RuntimeValue::Function(fun) => {
-                        self.eval_call(call_expr.source_span(), &*fun, &call_expr.arguments)
+                        self.eval_call(call_expr.source_span(), &*fun, &call_expr.arguments, ctx)
                     }
                     other => Err(RuntimeError::UncallableValue {
                         actual_type: other.type_of(),
                         found_at: call_expr.source_span(),
+                        source_code: ctx.source_code.clone(),
                     }),
                 }
             }
@@ -368,10 +397,11 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
         callable_source_span: SourceSpan,
         callable: &Callable,
         arguments: &[Expr],
+        ctx: &Ctx,
     ) -> Result<RuntimeValue, RuntimeError> {
         let argument_vals = arguments
             .iter()
-            .map(|arg| self.eval_expr(arg))
+            .map(|arg| self.eval_expr(arg, ctx))
             .collect::<Result<Vec<_>, _>>()?;
 
         if argument_vals.len() != callable.arity() {
@@ -379,6 +409,7 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                 expected_arity: callable.arity(),
                 actual_arity: argument_vals.len(),
                 found_at: callable_source_span,
+                source_code: ctx.source_code.clone(),
             })
         } else {
             callable.call(self, &argument_vals)
@@ -466,6 +497,7 @@ pub struct LoxFunction {
     id: usize,
     declaration: Rc<FunDecl>,
     closure: EnvironmentRef,
+    ctx: Ctx,
 }
 impl LoxCallable for LoxFunction {
     fn arity(&self) -> usize {
@@ -484,6 +516,7 @@ impl LoxCallable for LoxFunction {
                 RuntimeError::AlreadyDefinedVariable {
                     name: name.name.clone(),
                     found_at: name.source_span(),
+                    source_code: self.ctx.source_code.clone(),
                 }
             })?;
         }
@@ -491,13 +524,13 @@ impl LoxCallable for LoxFunction {
             call_env.wrap(),
             |interpreter| -> Result<RuntimeValue, RuntimeError> {
                 for stmt in self.declaration.body.iter() {
-                    match interpreter.eval_decl_or_stmt(stmt) {
+                    match interpreter.eval_decl_or_stmt(stmt, &self.ctx) {
                         Completion::Normal(_) => continue,
                         Completion::Return(value) => return Ok(value),
                         Completion::Error(err) => return Err(err),
                     }
                 }
-                return Ok(RuntimeValue::nil());
+                Ok(RuntimeValue::nil())
             },
         )
     }

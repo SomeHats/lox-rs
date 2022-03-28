@@ -11,7 +11,7 @@ use lazy_static::lazy_static;
 use libtest_mimic::{self, run_tests, Arguments, Outcome, Test};
 use lox_rs::{
     Interpreter, Parser, ParserError, ParserOpts, RuntimeError, Scanner, ScannerError,
-    SourceOffset, SourceSpan,
+    SourceOffset, SourceReference, SourceSpan,
 };
 use miette::{miette, IntoDiagnostic, Result};
 use regex::Regex;
@@ -56,6 +56,8 @@ lazy_static! {
 
 fn run_test(path: &Path) -> Result<Outcome> {
     let test_source = fs::read_to_string(path).into_diagnostic()?;
+    let source_reference =
+        SourceReference::new(path.to_string_lossy().to_string(), test_source.clone());
 
     let expected_output = EXPECTED_OUTPUT_RE
         .captures_iter(&test_source)
@@ -74,15 +76,19 @@ fn run_test(path: &Path) -> Result<Outcome> {
         .map_err(|_| miette!("should have at most one expected runtime error"))?;
 
     let mut scanner_errors = Vec::new();
-    let token_stream = Scanner::new(&test_source).filter_map(|token_or_err| match token_or_err {
-        Ok(token) => Some(token),
-        Err(error) => {
-            scanner_errors.push(error);
-            None
-        }
-    });
+    let token_stream =
+        Scanner::new(&test_source, source_reference.clone()).filter_map(|token_or_err| {
+            match token_or_err {
+                Ok(token) => Some(token),
+                Err(error) => {
+                    scanner_errors.push(error);
+                    None
+                }
+            }
+        });
 
-    let (program, parser_errors) = Parser::parse(token_stream, ParserOpts::default());
+    let (program, parser_errors) =
+        Parser::parse(token_stream, source_reference, ParserOpts::default());
 
     let did_have_scan_or_parse_errors = !scanner_errors.is_empty() || !parser_errors.is_empty();
     for scanner_error in scanner_errors {
@@ -278,16 +284,16 @@ trait FmtError {
 impl FmtError for ScannerError {
     fn fmt_error(&self, source: &str) -> String {
         match self {
-            ScannerError::UnexpectedCharacter { character, at } => format!(
+            ScannerError::UnexpectedCharacter { character, at, .. } => format!(
                 "ScannerError: UnexpectedCharacter {} at {}",
                 character,
                 format_offset(at, source)
             ),
-            ScannerError::UnterminatedString { at } => format!(
+            ScannerError::UnterminatedString { at, .. } => format!(
                 "ScannerError: UnterminatedString {}",
                 format_span(at, source)
             ),
-            ScannerError::UnknownEscape { character, at } => format!(
+            ScannerError::UnknownEscape { character, at, .. } => format!(
                 "ScannerError: UnknownEscape {} {}",
                 character,
                 format_span(at, source)
@@ -302,18 +308,23 @@ impl FmtError for ParserError {
                 opener,
                 found_token_type,
                 found_at,
+                ..
             } => format!(
                 "ParserError: UnmatchedParenthesis opened {}. found {:?} {}. ",
                 format_span(opener, source),
                 found_token_type,
                 format_span(found_at, source)
             ),
-            ParserError::ExpectedSemicolor { actual, found_at } => format!(
+            ParserError::ExpectedSemicolor {
+                actual, found_at, ..
+            } => format!(
                 "ParserError: ExpectedSemicolon found {:?} {}",
                 actual,
                 format_span(found_at, source),
             ),
-            ParserError::UnexpectedExpressionToken { actual, found_at } => format!(
+            ParserError::UnexpectedExpressionToken {
+                actual, found_at, ..
+            } => format!(
                 "ParserError: UnexpectedExpressionToken found {:?} {}",
                 actual,
                 format_span(found_at, source),
@@ -322,19 +333,21 @@ impl FmtError for ParserError {
                 actual,
                 expected,
                 found_at,
+                ..
             } => format!(
                 "ParserError: UnexpectedToken found {:?} {} expected {:?}",
                 actual,
                 format_span(found_at, source),
                 expected
             ),
-            ParserError::InvalidAssignmentTarget { found_at } => format!(
+            ParserError::InvalidAssignmentTarget { found_at, .. } => format!(
                 "ParserError: InvalidAssignmentTarget {}",
                 format_span(found_at, source)
             ),
             ParserError::TooManyCallArgs {
                 callee_at,
                 too_many_args_at,
+                ..
             } => format!(
                 "ParserError: TooManyCallArgs callee {} arg {}",
                 format_span(callee_at, source),
@@ -343,6 +356,7 @@ impl FmtError for ParserError {
             ParserError::TooManyFunParams {
                 decl_at,
                 too_many_params_at,
+                ..
             } => format!(
                 "ParserError: TooManyFunParams decl {} param {}",
                 format_span(decl_at, source),
@@ -360,6 +374,7 @@ impl FmtError for RuntimeError {
                 operand_loc,
                 operator,
                 operator_loc,
+                ..
             } => format!(
                 "RuntimeError: Operator {} {} expected {} got {} {}",
                 operator,
@@ -368,12 +383,12 @@ impl FmtError for RuntimeError {
                 actual_type.fmt_a(),
                 format_span(operand_loc, source)
             ),
-            RuntimeError::UndefinedVariable { name, found_at } => format!(
+            RuntimeError::UndefinedVariable { name, found_at, .. } => format!(
                 "RuntimeError: undefined variable {} {}",
                 name,
                 format_span(found_at, source)
             ),
-            RuntimeError::AlreadyDefinedVariable { name, found_at } => format!(
+            RuntimeError::AlreadyDefinedVariable { name, found_at, .. } => format!(
                 "RuntimeError: {} AlreadyDefinedVariable {}",
                 format_span(found_at, source),
                 name,
@@ -382,6 +397,7 @@ impl FmtError for RuntimeError {
                 expected_arity,
                 actual_arity,
                 found_at,
+                ..
             } => format!(
                 "RuntimeError: expected call arity {} got {} {}",
                 expected_arity,
@@ -391,6 +407,7 @@ impl FmtError for RuntimeError {
             RuntimeError::UncallableValue {
                 actual_type,
                 found_at,
+                ..
             } => format!(
                 "RuntimeError: cannot call {} {}",
                 actual_type.fmt_a(),

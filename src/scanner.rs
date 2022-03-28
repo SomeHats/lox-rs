@@ -1,6 +1,7 @@
 use crate::{
     fixed_que::FixedQueue,
     source::{SourceOffset, SourceSpan},
+    source_reference::SourceReference,
 };
 use derive_new::new;
 use miette::{Diagnostic, Result};
@@ -15,17 +16,23 @@ pub enum ScannerError {
         character: char,
         #[label("Character found here")]
         at: SourceOffset,
+        #[source_code]
+        source_code: SourceReference,
     },
     #[error("Unterminated string")]
     UnterminatedString {
         #[label("String")]
         at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
     },
     #[error("Unknown escape character {character:?}")]
     UnknownEscape {
         character: char,
         #[label("Character found here")]
         at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
     },
 }
 
@@ -88,10 +95,11 @@ pub struct Scanner<'a> {
     current_offset: usize,
     current_token_start_offset: usize,
     pending_errors: VecDeque<ScannerError>,
+    source_reference: SourceReference,
 }
 
 impl<'a> Scanner<'a> {
-    pub fn new(source: &'a str) -> Self {
+    pub fn new(source: &'a str, source_reference: SourceReference) -> Self {
         Self {
             source,
             iterator: source.char_indices(),
@@ -100,6 +108,7 @@ impl<'a> Scanner<'a> {
             current_offset: 0,
             current_token_start_offset: 0,
             pending_errors: VecDeque::new(),
+            source_reference,
         }
     }
 
@@ -228,6 +237,7 @@ impl<'a> Iterator for Scanner<'a> {
                                 break Err(ScannerError::UnterminatedString {
                                     at: (self.current_token_start_offset..self.current_offset)
                                         .into(),
+                                    source_code: self.source_reference.clone(),
                                 })
                             }
                             Some('n') => '\n',
@@ -239,6 +249,7 @@ impl<'a> Iterator for Scanner<'a> {
                                 self.pending_errors.push_back(ScannerError::UnknownEscape {
                                     character: ch,
                                     at: self.current_offset.into(),
+                                    source_code: self.source_reference.clone(),
                                 });
                                 continue;
                             }
@@ -249,6 +260,7 @@ impl<'a> Iterator for Scanner<'a> {
                                 .push_back(ScannerError::UnterminatedString {
                                     at: (self.current_token_start_offset..self.current_offset)
                                         .into(),
+                                    source_code: self.source_reference.clone(),
                                 });
                             break Ok(self.yield_token(TokenType::String(string_value)));
                         }
@@ -300,6 +312,7 @@ impl<'a> Iterator for Scanner<'a> {
             Some(ch) => Err(ScannerError::UnexpectedCharacter {
                 character: ch,
                 at: self.current_offset.into(),
+                source_code: self.source_reference.clone(),
             }),
         })
     }
@@ -310,6 +323,8 @@ mod tests {
     use pretty_assertions::assert_eq;
     use std::fs;
     use std::path::Path;
+
+    use crate::source_reference::SourceReference;
 
     #[test]
     fn fixtures() {
@@ -328,7 +343,11 @@ mod tests {
 
                 let actual_output_str = format!(
                     "{:#?}",
-                    &super::Scanner::new(&input_str).collect::<Vec<_>>()
+                    &super::Scanner::new(
+                        &input_str,
+                        SourceReference::new(name.clone(), input_str.clone())
+                    )
+                    .collect::<Vec<_>>()
                 );
 
                 println!("actual output for {}:\n{}", name, actual_output_str);

@@ -1,4 +1,4 @@
 {
   var a = "value";
-  var a = "other"; // RuntimeError: at l3c7 AlreadyDefinedVariable a
+  var a = "other"; // ResolverError: variable a at l3c7 already declared at l2c7
 }

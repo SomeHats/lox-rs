@@ -10,6 +10,8 @@ use std::{
 
 use crate::{
     ast::*,
+    resolver::{Resolutions, Resolver, ResolverError},
+    side_table::{SideTable, UniqueId},
     source::SourceSpan,
     value::{Value, ValueDescriptor, ValueType},
     SourceReference,
@@ -122,28 +124,46 @@ struct Ctx {
 
 pub struct Interpreter<'a, Stdout: Write> {
     environment: EnvironmentRef,
+    globals: EnvironmentRef,
     stdout: &'a mut Stdout,
     next_value_id: usize,
+    resolutions: Resolutions,
+    id: UniqueId,
 }
 
-impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
-    pub fn new(stdout: &'a mut Stdout) -> Self {
+pub struct PreparedProgram(UniqueId, Program);
+impl PreparedProgram {
+    pub fn program(&self) -> &Program {
+        &self.1
+    }
+}
+
+impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
+    pub fn new(stdout: &'out mut Stdout) -> Self {
         let globals = Rc::new(RefCell::new(Environment::new()));
         let mut interpreter = Self {
-            environment: globals,
+            environment: globals.clone(),
+            globals,
             stdout,
             next_value_id: 0,
+            id: UniqueId::new(),
+            resolutions: SideTable::new(),
         };
         interpreter.define_native_fn("clock", 0, lox_native_fns::clock);
         interpreter.define_native_fn("type_of", 1, lox_native_fns::type_of);
         interpreter
     }
-    pub fn interpret(&mut self, program: &Program) -> Result<RuntimeValue, RuntimeError> {
+    pub fn prepare(&mut self, program: Program) -> Result<PreparedProgram, Vec<ResolverError>> {
+        Resolver::resolve(&program, &mut self.resolutions)?;
+        Ok(PreparedProgram(self.id, program))
+    }
+    pub fn interpret(&mut self, program: &PreparedProgram) -> Result<RuntimeValue, RuntimeError> {
+        assert_eq!(program.0, self.id);
         let ctx = Ctx {
-            source_code: program.source_reference.clone(),
+            source_code: program.1.source_reference.clone(),
         };
         let result =
-            try_for_each_and_return_last(&program.statements, RuntimeValue::nil(), |stmt| {
+            try_for_each_and_return_last(&program.1.statements, RuntimeValue::nil(), |stmt| {
                 self.eval_decl_or_stmt(stmt, &ctx)
             });
         match result {
@@ -349,27 +369,29 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
                 })
             }
             Expr::Literal(LiteralExpr { value, .. }) => Ok(value.clone().into()),
-            Expr::Variable(VariableExpr { identifier }) => self
-                .environment
-                .borrow()
-                .get(&identifier.name)
-                .ok_or_else(|| RuntimeError::UndefinedVariable {
-                    name: identifier.name.clone(),
-                    found_at: identifier.source_span(),
-                    source_code: ctx.source_code.clone(),
-                }),
+            Expr::Variable(VariableExpr { identifier }) => {
+                self.lookup_identifier(identifier, |environment| {
+                    environment.get(&identifier.name).ok_or_else(|| {
+                        RuntimeError::UndefinedVariable {
+                            name: identifier.name.clone(),
+                            found_at: identifier.source_span(),
+                            source_code: ctx.source_code.clone(),
+                        }
+                    })
+                })
+            }
             Expr::Grouping(GroupingExpr { expr }) => self.eval_expr(expr, ctx),
             Expr::Assignment(AssignmentExpr { target, value }) => {
                 let value = self.eval_expr(value, ctx)?;
-                self.environment
-                    .as_ref()
-                    .borrow_mut()
-                    .assign(&target.name, value)
-                    .ok_or_else(|| RuntimeError::UndefinedVariable {
-                        name: target.name.clone(),
-                        found_at: target.source_span(),
-                        source_code: ctx.source_code.clone(),
-                    })
+                self.lookup_identifier_mut(target, move |environment| {
+                    environment
+                        .assign(&target.name, value.clone())
+                        .ok_or_else(|| RuntimeError::UndefinedVariable {
+                            name: target.name.clone(),
+                            found_at: target.source_span(),
+                            source_code: ctx.source_code.clone(),
+                        })
+                })
             }
             Expr::Call(call_expr) => {
                 let callee_val = self.eval_expr(&call_expr.callee, ctx)?;
@@ -413,6 +435,26 @@ impl<'a, Stdout: Write> Interpreter<'a, Stdout> {
             })
         } else {
             callable.call(self, &argument_vals)
+        }
+    }
+    fn lookup_identifier<T, F: Fn(&Environment) -> T>(&self, identifier: &Identifier, cb: F) -> T {
+        match self.resolutions.get(identifier) {
+            Some(distance) => self.environment.borrow().ancestor(*distance, cb).unwrap(),
+            None => cb(&self.globals.borrow()),
+        }
+    }
+    fn lookup_identifier_mut<T, F: Fn(&mut Environment) -> T>(
+        &self,
+        identifier: &Identifier,
+        cb: F,
+    ) -> T {
+        match self.resolutions.get(identifier) {
+            Some(distance) => self
+                .environment
+                .borrow_mut()
+                .ancestor_mut(*distance, cb)
+                .unwrap(),
+            None => cb(&mut self.globals.borrow_mut()),
         }
     }
     fn run_with_env<T, F: Fn(&mut Self) -> T>(&mut self, new_env: EnvironmentRef, run: F) -> T {
@@ -511,7 +553,6 @@ impl LoxCallable for LoxFunction {
     ) -> Result<RuntimeValue, RuntimeError> {
         let mut call_env = Environment::new_with_parent(self.closure.clone());
         for (name, value) in self.declaration.parameters.iter().zip_eq(args) {
-            dbg!(name);
             call_env.define(&name.name, value.clone()).map_err(|_| {
                 RuntimeError::AlreadyDefinedVariable {
                     name: name.name.clone(),
@@ -702,6 +743,24 @@ impl Environment {
             parent.as_ref().borrow_mut().assign(name, value)
         } else {
             None
+        }
+    }
+    fn ancestor<T, F: Fn(&Self) -> T>(&self, depth: usize, cb: F) -> Option<T> {
+        if depth == 0 {
+            Some(cb(self))
+        } else {
+            self.parent
+                .as_ref()
+                .and_then(|parent| parent.borrow().ancestor(depth - 1, cb))
+        }
+    }
+    fn ancestor_mut<T, F: Fn(&mut Self) -> T>(&mut self, depth: usize, cb: F) -> Option<T> {
+        if depth == 0 {
+            Some(cb(self))
+        } else {
+            self.parent
+                .as_ref()
+                .and_then(|parent| parent.borrow_mut().ancestor_mut(depth - 1, cb))
         }
     }
 }

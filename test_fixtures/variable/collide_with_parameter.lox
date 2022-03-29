@@ -1,3 +1,3 @@
 fun foo(a) {
-  var a; // Error at 'a': Already a variable with this name in this scope.
+  var a; // ResolverError: variable a at l2c7 already declared at l1c9
 }

@@ -1,4 +1,4 @@
 fun foo(arg,
-        arg) { // RuntimeError: at 'arg': Already a variable with this name in this scope.
+        arg) { // ResolverError: variable arg from l2c9 to l2c12 already declared from l1c9 to l1c12
   "body";
 }

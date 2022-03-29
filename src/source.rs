@@ -1,6 +1,6 @@
 use std::ops::{Range, RangeInclusive};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourceOffset(usize);
 
 impl SourceOffset {
@@ -36,7 +36,7 @@ impl From<SourceOffset> for miette::SourceSpan {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourceSpan {
     offset: SourceOffset,
     length: SourceOffset,

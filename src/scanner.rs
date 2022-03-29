@@ -3,7 +3,6 @@ use crate::{
     source::{SourceOffset, SourceSpan},
     source_reference::SourceReference,
 };
-use derive_new::new;
 use miette::{Diagnostic, Result};
 use std::{collections::VecDeque, str::CharIndices};
 use strum::EnumDiscriminants;
@@ -36,10 +35,15 @@ pub enum ScannerError {
     },
 }
 
-#[derive(Debug, new)]
+#[derive(Debug)]
 pub struct Token {
     pub span: SourceSpan,
     pub token_type: TokenType,
+}
+impl Token {
+    pub fn new(span: SourceSpan, token_type: TokenType) -> Self {
+        Self { span, token_type }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, EnumDiscriminants)]

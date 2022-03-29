@@ -7,6 +7,7 @@ const MAX_FUN_ARGS: usize = 254;
 use crate::{
     ast::*,
     scanner::{Token, TokenType, TokenTypeName},
+    side_table::UniqueId,
     source::SourceSpan,
     value::Value,
     SourceReference,
@@ -594,6 +595,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
 
         if let Some(identifier) = self.consume_match(|token| match &token.token_type {
             TokenType::Identifier(name) => Some(Identifier {
+                id: UniqueId::new(),
                 name: name.clone(),
                 source_span: token.span,
             }),
@@ -633,6 +635,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
             let next = self.peek_or_eof();
             match &next.token_type {
                 TokenType::Identifier(name) => Ok(Identifier {
+                    id: UniqueId::new(),
                     name: name.to_string(),
                     source_span: next.span,
                 }),

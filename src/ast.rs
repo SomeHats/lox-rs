@@ -6,7 +6,12 @@ use std::{
 
 use itertools::Itertools;
 
-use crate::{source::SourceSpan, value::Value, SourceReference};
+use crate::{
+    side_table::{Unique, UniqueId},
+    source::SourceSpan,
+    value::Value,
+    SourceReference,
+};
 
 #[derive(Debug)]
 pub struct WithSpan<T> {
@@ -65,6 +70,7 @@ impl AstNode for Program {
 pub struct Identifier {
     pub source_span: SourceSpan,
     pub name: String,
+    pub id: UniqueId,
 }
 
 impl AstNode for Identifier {
@@ -75,6 +81,11 @@ impl AstNode for Identifier {
 impl Display for Identifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.name)
+    }
+}
+impl Unique for Identifier {
+    fn id(&self) -> UniqueId {
+        self.id
     }
 }
 

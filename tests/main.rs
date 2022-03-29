@@ -10,14 +10,14 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use libtest_mimic::{self, run_tests, Arguments, Outcome, Test};
 use lox_rs::{
-    Interpreter, Parser, ParserError, ParserOpts, RuntimeError, Scanner, ScannerError,
-    SourceOffset, SourceReference, SourceSpan,
+    Interpreter, Parser, ParserError, ParserOpts, ResolverError, RuntimeError, Scanner,
+    ScannerError, SourceOffset, SourceReference, SourceSpan,
 };
 use miette::{miette, IntoDiagnostic, Result};
 use regex::Regex;
 
 lazy_static! {
-    static ref IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((benchmark|class|constructor|field|inheritance|limit|method|regression|return|super|this)/|(variable/(early_bound|local_from_method|use_this_as_var|use_local_in_initializer|duplicate_parameter)|operator/(not_class|equals_class|equals_method)|assignment/to_this|while/class_in_body|for/class_in_body|closure/(close_over_method_parameter|assign_to_shadowed_later)|function/local_mutual_recursion|call/object).lox)").unwrap();
+    static ref IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((benchmark|class|constructor|field|inheritance|limit|method|regression|return|super|this)/|(variable/(local_from_method|use_this_as_var)|operator/(not_class|equals_class|equals_method)|assignment/to_this|while/class_in_body|for/class_in_body|closure/(close_over_method_parameter)|call/object).lox)").unwrap();
 }
 
 fn main() {
@@ -51,6 +51,7 @@ fn main() {
 lazy_static! {
     static ref EXPECTED_OUTPUT_RE: Regex = Regex::new("// expect: (.*)\n?").unwrap();
     static ref PARSER_ERROR_RE: Regex = Regex::new("// (Scanner|Parser)Error: (.*)\n?").unwrap();
+    static ref RESOLVER_ERROR_RE: Regex = Regex::new("// ResolverError: (.*)\n?").unwrap();
     static ref RUNTIME_ERROR_RE: Regex = Regex::new("// RuntimeError: (.*)\n?").unwrap();
 }
 
@@ -67,6 +68,11 @@ fn run_test(path: &Path) -> Result<Outcome> {
     let mut expected_parser_errors = PARSER_ERROR_RE
         .captures_iter(&test_source)
         .map(|captures| format!("{}Error: {}", &captures[1], &captures[2]))
+        .collect::<VecDeque<_>>();
+
+    let mut expected_resolver_errors = RESOLVER_ERROR_RE
+        .captures_iter(&test_source)
+        .map(|captures| format!("ResolverError: {}", &captures[1]))
         .collect::<VecDeque<_>>();
 
     let expected_runtime_error = RUNTIME_ERROR_RE
@@ -131,7 +137,37 @@ fn run_test(path: &Path) -> Result<Outcome> {
 
     let mut output_writer = StringWriter::new();
     let mut interpreter = Interpreter::new(&mut output_writer);
-    if let Err(err) = interpreter.interpret(&program) {
+    let prepared_program = match interpreter.prepare(program) {
+        Ok(prepared) => prepared,
+        Err(errors) => {
+            for actual_error in errors {
+                match match_errors(
+                    actual_error,
+                    &expected_resolver_errors.pop_front(),
+                    &test_source,
+                ) {
+                    Ok(_) => continue,
+                    Err(msg) => return Ok(Outcome::Failed { msg: Some(msg) }),
+                }
+            }
+
+            if !expected_resolver_errors.is_empty() {
+                return Ok(Outcome::Failed {
+                    msg: Some(format!(
+                        "Expected errors:\n{}",
+                        expected_parser_errors
+                            .iter()
+                            .map(|err| format!(" - {}\n", err))
+                            .collect::<String>(),
+                    )),
+                });
+            } else {
+                return Ok(Outcome::Passed);
+            }
+        }
+    };
+
+    if let Err(err) = interpreter.interpret(&prepared_program) {
         if let Err(err) = match_errors(err, &expected_runtime_error, &test_source) {
             return Ok(Outcome::Failed { msg: Some(err) });
         }
@@ -284,16 +320,24 @@ trait FmtError {
 impl FmtError for ScannerError {
     fn fmt_error(&self, source: &str) -> String {
         match self {
-            ScannerError::UnexpectedCharacter { character, at, .. } => format!(
+            ScannerError::UnexpectedCharacter {
+                character,
+                at,
+                source_code: _,
+            } => format!(
                 "ScannerError: UnexpectedCharacter {} at {}",
                 character,
                 format_offset(at, source)
             ),
-            ScannerError::UnterminatedString { at, .. } => format!(
+            ScannerError::UnterminatedString { at, source_code: _ } => format!(
                 "ScannerError: UnterminatedString {}",
                 format_span(at, source)
             ),
-            ScannerError::UnknownEscape { character, at, .. } => format!(
+            ScannerError::UnknownEscape {
+                character,
+                at,
+                source_code: _,
+            } => format!(
                 "ScannerError: UnknownEscape {} {}",
                 character,
                 format_span(at, source)
@@ -308,7 +352,7 @@ impl FmtError for ParserError {
                 opener,
                 found_token_type,
                 found_at,
-                ..
+                source_code: _,
             } => format!(
                 "ParserError: UnmatchedParenthesis opened {}. found {:?} {}. ",
                 format_span(opener, source),
@@ -316,14 +360,18 @@ impl FmtError for ParserError {
                 format_span(found_at, source)
             ),
             ParserError::ExpectedSemicolor {
-                actual, found_at, ..
+                actual,
+                found_at,
+                source_code: _,
             } => format!(
                 "ParserError: ExpectedSemicolon found {:?} {}",
                 actual,
                 format_span(found_at, source),
             ),
             ParserError::UnexpectedExpressionToken {
-                actual, found_at, ..
+                actual,
+                found_at,
+                source_code: _,
             } => format!(
                 "ParserError: UnexpectedExpressionToken found {:?} {}",
                 actual,
@@ -333,21 +381,24 @@ impl FmtError for ParserError {
                 actual,
                 expected,
                 found_at,
-                ..
+                source_code: _,
             } => format!(
                 "ParserError: UnexpectedToken found {:?} {} expected {:?}",
                 actual,
                 format_span(found_at, source),
                 expected
             ),
-            ParserError::InvalidAssignmentTarget { found_at, .. } => format!(
+            ParserError::InvalidAssignmentTarget {
+                found_at,
+                source_code: _,
+            } => format!(
                 "ParserError: InvalidAssignmentTarget {}",
                 format_span(found_at, source)
             ),
             ParserError::TooManyCallArgs {
                 callee_at,
                 too_many_args_at,
-                ..
+                source_code: _,
             } => format!(
                 "ParserError: TooManyCallArgs callee {} arg {}",
                 format_span(callee_at, source),
@@ -365,6 +416,39 @@ impl FmtError for ParserError {
         }
     }
 }
+impl FmtError for ResolverError {
+    fn fmt_error(&self, source: &str) -> String {
+        match self {
+            ResolverError::VariableUsedInOwnInitializer {
+                declared_at,
+                used_at,
+                source_code: _,
+            } => format!(
+                "ResolverError: variable {} used in own initializer {}",
+                format_span(declared_at, source),
+                format_span(used_at, source),
+            ),
+            ResolverError::VariableAlreadyDeclared {
+                name,
+                found_at,
+                first_found_at,
+                source_code: _,
+            } => format!(
+                "ResolverError: variable {} {} already declared {}",
+                name,
+                format_span(found_at, source),
+                format_span(first_found_at, source)
+            ),
+            ResolverError::ReturnFromTopLevel {
+                found_at,
+                source_code: _,
+            } => format!(
+                "ResolverError: return outside of function {}",
+                format_span(found_at, source)
+            ),
+        }
+    }
+}
 impl FmtError for RuntimeError {
     fn fmt_error(&self, source: &str) -> String {
         match self {
@@ -374,7 +458,7 @@ impl FmtError for RuntimeError {
                 operand_loc,
                 operator,
                 operator_loc,
-                ..
+                source_code: _,
             } => format!(
                 "RuntimeError: Operator {} {} expected {} got {} {}",
                 operator,
@@ -383,12 +467,20 @@ impl FmtError for RuntimeError {
                 actual_type.fmt_a(),
                 format_span(operand_loc, source)
             ),
-            RuntimeError::UndefinedVariable { name, found_at, .. } => format!(
+            RuntimeError::UndefinedVariable {
+                name,
+                found_at,
+                source_code: _,
+            } => format!(
                 "RuntimeError: undefined variable {} {}",
                 name,
                 format_span(found_at, source)
             ),
-            RuntimeError::AlreadyDefinedVariable { name, found_at, .. } => format!(
+            RuntimeError::AlreadyDefinedVariable {
+                name,
+                found_at,
+                source_code: _,
+            } => format!(
                 "RuntimeError: {} AlreadyDefinedVariable {}",
                 format_span(found_at, source),
                 name,
@@ -397,7 +489,7 @@ impl FmtError for RuntimeError {
                 expected_arity,
                 actual_arity,
                 found_at,
-                ..
+                source_code: _,
             } => format!(
                 "RuntimeError: expected call arity {} got {} {}",
                 expected_arity,
@@ -407,7 +499,7 @@ impl FmtError for RuntimeError {
             RuntimeError::UncallableValue {
                 actual_type,
                 found_at,
-                ..
+                source_code: _,
             } => format!(
                 "RuntimeError: cannot call {} {}",
                 actual_type.fmt_a(),

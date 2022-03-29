@@ -10,8 +10,8 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use libtest_mimic::{self, run_tests, Arguments, Outcome, Test};
 use lox_rs::{
-    Interpreter, Parser, ParserError, ParserOpts, ResolverError, RuntimeError, Scanner,
-    ScannerError, SourceOffset, SourceReference, SourceSpan,
+    ast::PrettyPrint, Interpreter, Parser, ParserError, ParserOpts, ResolverError, RuntimeError,
+    Scanner, ScannerError, SourceOffset, SourceReference, SourceSpan,
 };
 use miette::{miette, IntoDiagnostic, Result};
 use regex::Regex;

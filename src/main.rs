@@ -3,7 +3,9 @@ use std::io::{stdout, Write};
 use miette::{Diagnostic, IntoDiagnostic, Report, Result};
 use rustyline::error::ReadlineError;
 
-use lox_rs::{Interpreter, Parser, ParserOpts, PreparedProgram, Scanner, SourceReference};
+use lox_rs::{
+    ast::PrettyPrint, Interpreter, Parser, ParserOpts, PreparedProgram, Scanner, SourceReference,
+};
 
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
@@ -99,7 +101,7 @@ fn run_prompt() -> Result<()> {
                 ) {
                     None => {}
                     Some(prepared_program) => {
-                        println!("{}", prepared_program.program());
+                        println!("{}", prepared_program.program().pretty_print());
                         match interpreter.interpret(&prepared_program) {
                             Ok(value) => println!("==> {:?}", value),
                             Err(err) => {

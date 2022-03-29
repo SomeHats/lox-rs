@@ -4,7 +4,7 @@ use std::{
     rc::Rc,
 };
 
-use itertools::Itertools;
+use colored::Colorize;
 
 use crate::{
     side_table::{Unique, UniqueId},
@@ -47,12 +47,12 @@ pub struct Program {
     pub statements: Vec<DeclOrStmt>,
     pub source_reference: SourceReference,
 }
-impl Display for Program {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl PrettyPrint for Program {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
         for stmt in self.statements.iter() {
-            writeln!(f, "{}", stmt)?;
+            stmt.fmt_pretty(f);
+            f.break_line();
         }
-        Ok(())
     }
 }
 impl AstNode for Program {
@@ -78,9 +78,9 @@ impl AstNode for Identifier {
         self.source_span
     }
 }
-impl Display for Identifier {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.name)
+impl PrettyPrint for Identifier {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        f.push_str(&self.name);
     }
 }
 impl Unique for Identifier {
@@ -106,12 +106,15 @@ impl AstNode for VarDecl {
         )
     }
 }
-impl Display for VarDecl {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.initializer {
-            Some(init) => write!(f, "(var {} {})", self.identifier, init),
-            None => write!(f, "(var {})", self.identifier),
-        }
+impl PrettyPrint for VarDecl {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        f.block_sexp(|f| {
+            f.keyword_item("var");
+            f.item(&self.identifier);
+            if let Some(initializer) = &self.initializer {
+                f.item(initializer);
+            }
+        });
     }
 }
 
@@ -122,21 +125,21 @@ pub struct FunDecl {
     pub parameters: Vec<Identifier>,
     pub body: Vec<DeclOrStmt>,
 }
-impl Display for FunDecl {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "(fun {} ({}) \n{})",
-            self.name,
-            self.parameters
-                .iter()
-                .map(|param| param.to_string())
-                .join(" "),
-            self.body
-                .iter()
-                .map(|stmt| format!("  {}", stmt))
-                .join("\n")
-        )
+impl PrettyPrint for FunDecl {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        f.block_sexp(|f| {
+            f.keyword_item("fun");
+            f.item(&self.name);
+            f.inline_sexp(|f| {
+                for parameter in &self.parameters {
+                    f.item(parameter);
+                }
+            });
+            for stmt in &self.body {
+                f.break_line();
+                f.item(stmt);
+            }
+        });
     }
 }
 impl AstNode for FunDecl {
@@ -158,12 +161,12 @@ impl AstNode for Decl {
         }
     }
 }
-impl Display for Decl {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl PrettyPrint for Decl {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
         match self {
-            Self::Var(decl) => Display::fmt(decl, f),
-            Self::Fun(decl) => Display::fmt(decl, f),
-        }
+            Self::Var(decl) => decl.fmt_pretty(f),
+            Self::Fun(decl) => decl.fmt_pretty(f),
+        };
     }
 }
 
@@ -180,11 +183,11 @@ impl AstNode for DeclOrStmt {
         }
     }
 }
-impl Display for DeclOrStmt {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl PrettyPrint for DeclOrStmt {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
         match self {
-            Self::Decl(decl) => Display::fmt(decl, f),
-            Self::Stmt(stmt) => Display::fmt(stmt, f),
+            Self::Decl(decl) => decl.fmt_pretty(f),
+            Self::Stmt(stmt) => stmt.fmt_pretty(f),
         }
     }
 }
@@ -193,9 +196,9 @@ impl Display for DeclOrStmt {
 pub struct ExprStmt {
     pub expression: Expr,
 }
-impl Display for ExprStmt {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.expression, f)
+impl PrettyPrint for ExprStmt {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        self.expression.fmt_pretty(f);
     }
 }
 impl AstNode for ExprStmt {
@@ -209,9 +212,12 @@ pub struct PrintStmt {
     pub expression: Expr,
     pub print_span: SourceSpan,
 }
-impl Display for PrintStmt {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(print {})", self.expression)
+impl PrettyPrint for PrintStmt {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        f.inline_sexp(|f| {
+            f.keyword_item("print");
+            f.item(&self.expression);
+        });
     }
 }
 impl AstNode for PrintStmt {
@@ -226,13 +232,15 @@ pub struct BlockStmt {
     pub open_span: SourceSpan,
     pub close_span: SourceSpan,
 }
-impl Display for BlockStmt {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("(do ")?;
-        for stmt in self.body.iter() {
-            write!(f, "{} ", stmt)?;
-        }
-        f.write_str(")")
+impl PrettyPrint for BlockStmt {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        f.block_sexp(|f| {
+            f.keyword_item("do");
+            for stmt in &self.body {
+                f.break_line();
+                f.item(stmt);
+            }
+        });
     }
 }
 impl AstNode for BlockStmt {
@@ -248,16 +256,18 @@ pub struct IfStmt {
     pub then_branch: Box<Stmt>,
     pub else_branch: Option<Box<Stmt>>,
 }
-impl Display for IfStmt {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.else_branch {
-            Some(else_branch) => write!(
-                f,
-                "(if {} {} {})",
-                self.condition, self.then_branch, else_branch
-            ),
-            None => write!(f, "(if {} {})", self.condition, self.then_branch),
-        }
+impl PrettyPrint for IfStmt {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        f.block_sexp(|f| {
+            f.keyword_item("if");
+            f.item(&self.condition);
+            f.break_line();
+            f.item(self.then_branch.as_ref());
+            if let Some(else_branch) = &self.else_branch {
+                f.break_line();
+                f.item(else_branch.as_ref());
+            }
+        });
     }
 }
 impl AstNode for IfStmt {
@@ -278,9 +288,13 @@ pub struct WhileStmt {
     pub condition: Expr,
     pub body: Box<Stmt>,
 }
-impl Display for WhileStmt {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(while {} {})", self.condition, self.body)
+impl PrettyPrint for WhileStmt {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        f.inline_sexp(|f| {
+            f.keyword_item("while");
+            f.item(&self.condition);
+            f.item(self.body.as_ref());
+        });
     }
 }
 impl AstNode for WhileStmt {
@@ -294,12 +308,14 @@ pub struct ReturnStmt {
     pub return_span: SourceSpan,
     pub expression: Option<Expr>,
 }
-impl Display for ReturnStmt {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.expression {
-            Some(expression) => write!(f, "(return {})", expression),
-            None => write!(f, "(return)"),
-        }
+impl PrettyPrint for ReturnStmt {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        f.inline_sexp(|f| {
+            f.keyword_item("return");
+            if let Some(expression) = &self.expression {
+                f.item(expression);
+            }
+        });
     }
 }
 impl AstNode for ReturnStmt {
@@ -323,15 +339,15 @@ pub enum Stmt {
     While(WhileStmt),
     Return(ReturnStmt),
 }
-impl Display for Stmt {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl PrettyPrint for Stmt {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
         match self {
-            Self::Expr(stmt) => Display::fmt(stmt, f),
-            Self::Print(stmt) => Display::fmt(stmt, f),
-            Self::Block(stmt) => Display::fmt(stmt, f),
-            Self::If(stmt) => Display::fmt(stmt, f),
-            Self::While(stmt) => Display::fmt(stmt, f),
-            Self::Return(stmt) => Display::fmt(stmt, f),
+            Self::Expr(stmt) => stmt.fmt_pretty(f),
+            Self::Print(stmt) => stmt.fmt_pretty(f),
+            Self::Block(stmt) => stmt.fmt_pretty(f),
+            Self::If(stmt) => stmt.fmt_pretty(f),
+            Self::While(stmt) => stmt.fmt_pretty(f),
+            Self::Return(stmt) => stmt.fmt_pretty(f),
         }
     }
 }
@@ -388,9 +404,13 @@ pub struct BinaryExpr {
     pub right: Box<Expr>,
     pub operator: WithSpan<BinaryOperator>,
 }
-impl Display for BinaryExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({} {} {})", self.operator.inner, self.left, self.right)
+impl PrettyPrint for BinaryExpr {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        f.inline_sexp(|f| {
+            f.item(&self.operator.inner.to_string().purple().to_string());
+            f.item(self.left.as_ref());
+            f.item(self.right.as_ref());
+        });
     }
 }
 impl AstNode for BinaryExpr {
@@ -407,9 +427,9 @@ pub struct LiteralExpr {
     pub value: Value,
     pub source_span: SourceSpan,
 }
-impl Display for LiteralExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.value, f)
+impl PrettyPrint for LiteralExpr {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        f.push_str(&format!("{:?}", self.value).yellow().to_string());
     }
 }
 impl AstNode for LiteralExpr {
@@ -425,10 +445,10 @@ pub enum UnaryOperator {
 }
 impl Display for UnaryOperator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Minus => f.write_str("-"),
-            Self::Not => f.write_str("!"),
-        }
+        f.write_str(match self {
+            Self::Minus => "-",
+            Self::Not => "!",
+        })
     }
 }
 
@@ -437,9 +457,12 @@ pub struct UnaryExpr {
     pub operator: WithSpan<UnaryOperator>,
     pub right: Box<Expr>,
 }
-impl Display for UnaryExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({} {})", self.operator.inner, self.right)
+impl PrettyPrint for UnaryExpr {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        f.inline_sexp(|f| {
+            f.item(&self.operator.inner.to_string().purple().to_string());
+            f.item(self.right.as_ref());
+        });
     }
 }
 impl AstNode for UnaryExpr {
@@ -455,9 +478,9 @@ impl AstNode for UnaryExpr {
 pub struct VariableExpr {
     pub identifier: Identifier,
 }
-impl Display for VariableExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.identifier, f)
+impl PrettyPrint for VariableExpr {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        self.identifier.fmt_pretty(f);
     }
 }
 impl AstNode for VariableExpr {
@@ -471,9 +494,13 @@ pub struct AssignmentExpr {
     pub target: Identifier,
     pub value: Box<Expr>,
 }
-impl Display for AssignmentExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(assign {} {})", self.target, self.value)
+impl PrettyPrint for AssignmentExpr {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        f.inline_sexp(|f| {
+            f.keyword_item("assign");
+            f.item(&self.target);
+            f.item(self.value.as_ref());
+        });
     }
 }
 impl AstNode for AssignmentExpr {
@@ -489,9 +516,9 @@ impl AstNode for AssignmentExpr {
 pub struct GroupingExpr {
     pub expr: Box<Expr>,
 }
-impl Display for GroupingExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.expr, f)
+impl PrettyPrint for GroupingExpr {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        self.expr.fmt_pretty(f);
     }
 }
 impl AstNode for GroupingExpr {
@@ -506,17 +533,14 @@ pub struct CallExpr {
     pub arguments: Vec<Expr>,
     pub close_paren_span: SourceSpan,
 }
-impl Display for CallExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "(call {} {})",
-            self.callee,
-            self.arguments
-                .iter()
-                .map(|arg| format!("{}", arg))
-                .join(" ")
-        )
+impl PrettyPrint for CallExpr {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        f.inline_sexp(|f| {
+            f.item(self.callee.as_ref());
+            for arg in &self.arguments {
+                f.item(arg);
+            }
+        });
     }
 }
 impl AstNode for CallExpr {
@@ -538,16 +562,16 @@ pub enum Expr {
     Grouping(GroupingExpr),
     Call(CallExpr),
 }
-impl Display for Expr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl PrettyPrint for Expr {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
         match self {
-            Self::Binary(expr) => Display::fmt(expr, f),
-            Self::Unary(expr) => Display::fmt(expr, f),
-            Self::Literal(expr) => Display::fmt(expr, f),
-            Self::Variable(expr) => Display::fmt(expr, f),
-            Self::Assignment(expr) => Display::fmt(expr, f),
-            Self::Grouping(expr) => Display::fmt(expr, f),
-            Self::Call(expr) => Display::fmt(expr, f),
+            Self::Binary(expr) => expr.fmt_pretty(f),
+            Self::Unary(expr) => expr.fmt_pretty(f),
+            Self::Literal(expr) => expr.fmt_pretty(f),
+            Self::Variable(expr) => expr.fmt_pretty(f),
+            Self::Assignment(expr) => expr.fmt_pretty(f),
+            Self::Grouping(expr) => expr.fmt_pretty(f),
+            Self::Call(expr) => expr.fmt_pretty(f),
         }
     }
 }
@@ -562,5 +586,81 @@ impl AstNode for Expr {
             Self::Grouping(expr) => expr.source_span(),
             Self::Call(expr) => expr.source_span(),
         }
+    }
+}
+
+pub struct PrettyPrinter {
+    buf: String,
+    indent_size: usize,
+    indent: usize,
+}
+impl PrettyPrinter {
+    fn push_str(&mut self, s: &str) {
+        for (idx, line) in s.split('\n').enumerate() {
+            if idx > 0 {
+                self.buf
+                    .push_str(&format!("\n{}", " ".repeat(self.indent * self.indent_size)));
+            }
+            self.buf.push_str(line);
+        }
+    }
+    fn closing_paren(&mut self) {
+        let last = unsafe { self.buf.as_bytes_mut().last_mut() };
+        match last {
+            Some(lc) if *lc == b' ' => {
+                *lc = b')';
+            }
+            _ => {
+                self.buf.push(')');
+            }
+        }
+    }
+    fn inline_sexp<F: Fn(&mut Self)>(&mut self, fmt: F) {
+        self.push_str("(");
+        fmt(self);
+        self.closing_paren();
+    }
+    fn block_sexp<F: Fn(&mut Self)>(&mut self, fmt: F) {
+        self.push_str("(");
+        self.indent += 1;
+        fmt(self);
+        self.closing_paren();
+        self.indent -= 1;
+        // self.break();
+    }
+    fn break_line(&mut self) {
+        self.push_str("\n");
+    }
+    fn space_line(&mut self) {
+        self.push_str("\n\n");
+    }
+    fn item<T: PrettyPrint>(&mut self, item: &T) {
+        item.fmt_pretty(self);
+        self.buf.push(' ');
+    }
+    fn keyword_item(&mut self, s: &str) {
+        self.item(&s.blue().to_string());
+    }
+}
+pub trait PrettyPrint {
+    fn fmt_pretty(&self, printer: &mut PrettyPrinter);
+    fn pretty_print(&self) -> String {
+        let mut printer = PrettyPrinter {
+            buf: String::new(),
+            indent: 0,
+            indent_size: 4,
+        };
+        self.fmt_pretty(&mut printer);
+        printer.buf
+    }
+}
+impl PrettyPrint for &str {
+    fn fmt_pretty(&self, printer: &mut PrettyPrinter) {
+        printer.push_str(self);
+    }
+}
+impl PrettyPrint for String {
+    fn fmt_pretty(&self, printer: &mut PrettyPrinter) {
+        printer.push_str(self);
     }
 }

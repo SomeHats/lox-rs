@@ -1,5 +1,5 @@
 use std::{
-    fmt::{Debug, Display},
+    fmt::{Debug, Display, Write},
     ops::Deref,
     rc::Rc,
 };
@@ -121,21 +121,19 @@ impl PrettyPrint for VarDecl {
 #[derive(Debug)]
 pub struct FunDecl {
     pub source_span: SourceSpan,
-    pub name: Identifier,
-    pub parameters: Vec<Identifier>,
-    pub body: Vec<DeclOrStmt>,
+    pub fun: Rc<Fun>,
 }
 impl PrettyPrint for FunDecl {
     fn fmt_pretty(&self, f: &mut PrettyPrinter) {
         f.block_sexp(|f| {
             f.keyword_item("fun");
-            f.item(&self.name);
+            f.item(&self.fun.name);
             f.inline_sexp(|f| {
-                for parameter in &self.parameters {
+                for parameter in &self.fun.parameters {
                     f.item(parameter);
                 }
             });
-            for stmt in &self.body {
+            for stmt in &self.fun.body {
                 f.break_line();
                 f.item(stmt);
             }
@@ -149,15 +147,66 @@ impl AstNode for FunDecl {
 }
 
 #[derive(Debug)]
+pub struct ClassDecl {
+    pub source_span: SourceSpan,
+    pub name: Identifier,
+    pub methods: Vec<Rc<Fun>>,
+}
+impl AstNode for ClassDecl {
+    fn source_span(&self) -> SourceSpan {
+        self.source_span
+    }
+}
+impl PrettyPrint for ClassDecl {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        f.block_sexp(|f| {
+            f.keyword_item("class");
+            f.item(&self.name);
+            for method in &*self.methods {
+                f.break_line();
+                f.block_sexp(|f| {
+                    f.keyword_item("method");
+                    f.item(&method.name);
+                    f.inline_sexp(|f| {
+                        for parameter in &method.parameters {
+                            f.item(parameter);
+                        }
+                    });
+                    for stmt in &method.body {
+                        f.break_line();
+                        f.item(stmt);
+                    }
+                })
+            }
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct Fun {
+    pub source_span: SourceSpan,
+    pub name: Identifier,
+    pub parameters: Vec<Identifier>,
+    pub body: Vec<DeclOrStmt>,
+}
+impl AstNode for Fun {
+    fn source_span(&self) -> SourceSpan {
+        self.source_span
+    }
+}
+
+#[derive(Debug)]
 pub enum Decl {
     Var(VarDecl),
-    Fun(Rc<FunDecl>),
+    Fun(FunDecl),
+    Class(ClassDecl),
 }
 impl AstNode for Decl {
     fn source_span(&self) -> SourceSpan {
         match self {
             Self::Var(decl) => decl.source_span(),
             Self::Fun(decl) => decl.source_span(),
+            Self::Class(decl) => decl.source_span(),
         }
     }
 }
@@ -166,6 +215,7 @@ impl PrettyPrint for Decl {
         match self {
             Self::Var(decl) => decl.fmt_pretty(f),
             Self::Fun(decl) => decl.fmt_pretty(f),
+            Self::Class(decl) => decl.fmt_pretty(f),
         };
     }
 }
@@ -429,7 +479,7 @@ pub struct LiteralExpr {
 }
 impl PrettyPrint for LiteralExpr {
     fn fmt_pretty(&self, f: &mut PrettyPrinter) {
-        f.push_str(&format!("{:?}", self.value).yellow().to_string());
+        f.push_str(&format!("{:?}", self.value).yellow());
     }
 }
 impl AstNode for LiteralExpr {
@@ -490,8 +540,30 @@ impl AstNode for VariableExpr {
 }
 
 #[derive(Debug)]
+pub enum AssignmentTargetExpr {
+    Variable(VariableExpr),
+    PropertyAccess(PropertyAccessExpr),
+}
+impl AstNode for AssignmentTargetExpr {
+    fn source_span(&self) -> SourceSpan {
+        match self {
+            Self::Variable(expr) => expr.source_span(),
+            Self::PropertyAccess(expr) => expr.source_span(),
+        }
+    }
+}
+impl PrettyPrint for AssignmentTargetExpr {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        match self {
+            Self::Variable(expr) => expr.fmt_pretty(f),
+            Self::PropertyAccess(expr) => expr.fmt_pretty(f),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct AssignmentExpr {
-    pub target: Identifier,
+    pub target: AssignmentTargetExpr,
     pub value: Box<Expr>,
 }
 impl PrettyPrint for AssignmentExpr {
@@ -553,6 +625,42 @@ impl AstNode for CallExpr {
 }
 
 #[derive(Debug)]
+pub struct PropertyAccessExpr {
+    pub object: Box<Expr>,
+    pub property: Identifier,
+}
+impl PrettyPrint for PropertyAccessExpr {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        self.object.fmt_pretty(f);
+        f.push_str(".");
+        self.property.fmt_pretty(f);
+    }
+}
+impl AstNode for PropertyAccessExpr {
+    fn source_span(&self) -> SourceSpan {
+        SourceSpan::range(
+            self.object.source_span().start(),
+            self.property.source_span().end(),
+        )
+    }
+}
+
+#[derive(Debug)]
+pub struct ThisExpr {
+    pub source_span: SourceSpan,
+}
+impl PrettyPrint for ThisExpr {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        f.push_str(&"this".purple());
+    }
+}
+impl AstNode for ThisExpr {
+    fn source_span(&self) -> SourceSpan {
+        self.source_span
+    }
+}
+
+#[derive(Debug)]
 pub enum Expr {
     Binary(BinaryExpr),
     Unary(UnaryExpr),
@@ -561,6 +669,8 @@ pub enum Expr {
     Assignment(AssignmentExpr),
     Grouping(GroupingExpr),
     Call(CallExpr),
+    PropertyAccess(PropertyAccessExpr),
+    This(ThisExpr),
 }
 impl PrettyPrint for Expr {
     fn fmt_pretty(&self, f: &mut PrettyPrinter) {
@@ -572,6 +682,8 @@ impl PrettyPrint for Expr {
             Self::Assignment(expr) => expr.fmt_pretty(f),
             Self::Grouping(expr) => expr.fmt_pretty(f),
             Self::Call(expr) => expr.fmt_pretty(f),
+            Self::PropertyAccess(expr) => expr.fmt_pretty(f),
+            Self::This(expr) => expr.fmt_pretty(f),
         }
     }
 }
@@ -585,6 +697,8 @@ impl AstNode for Expr {
             Self::Assignment(expr) => expr.source_span(),
             Self::Grouping(expr) => expr.source_span(),
             Self::Call(expr) => expr.source_span(),
+            Self::PropertyAccess(expr) => expr.source_span(),
+            Self::This(expr) => expr.source_span(),
         }
     }
 }
@@ -598,8 +712,7 @@ impl PrettyPrinter {
     fn push_str(&mut self, s: &str) {
         for (idx, line) in s.split('\n').enumerate() {
             if idx > 0 {
-                self.buf
-                    .push_str(&format!("\n{}", " ".repeat(self.indent * self.indent_size)));
+                write!(self.buf, "\n{}", " ".repeat(self.indent * self.indent_size)).unwrap();
             }
             self.buf.push_str(line);
         }
@@ -626,13 +739,9 @@ impl PrettyPrinter {
         fmt(self);
         self.closing_paren();
         self.indent -= 1;
-        // self.break();
     }
     fn break_line(&mut self) {
         self.push_str("\n");
-    }
-    fn space_line(&mut self) {
-        self.push_str("\n\n");
     }
     fn item<T: PrettyPrint>(&mut self, item: &T) {
         item.fmt_pretty(self);

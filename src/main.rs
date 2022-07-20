@@ -49,6 +49,8 @@ fn prepare_and_report_errors<W: Write>(
     let did_have_parser_error = !parser_errors.is_empty();
     report_all_errors(parser_errors);
 
+    println!("{}", program.pretty_print());
+
     match interpreter.prepare(program) {
         Ok(prepared) => {
             if did_have_scanner_error || did_have_parser_error {
@@ -100,15 +102,12 @@ fn run_prompt() -> Result<()> {
                     &mut interpreter,
                 ) {
                     None => {}
-                    Some(prepared_program) => {
-                        println!("{}", prepared_program.program().pretty_print());
-                        match interpreter.interpret(&prepared_program) {
-                            Ok(value) => println!("==> {:?}", value),
-                            Err(err) => {
-                                println!("{:?}", Report::new(err));
-                            }
+                    Some(prepared_program) => match interpreter.interpret(&prepared_program) {
+                        Ok(value) => println!("==> {:?}", value),
+                        Err(err) => {
+                            println!("{:?}", Report::new(err));
                         }
-                    }
+                    },
                 }
             }
             Err(ReadlineError::Interrupted) => return Ok(()),

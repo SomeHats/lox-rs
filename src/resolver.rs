@@ -110,18 +110,24 @@ impl Resolver<'_> {
                 self.define(&decl.identifier);
             }
             Decl::Fun(decl) => {
+                self.declare(&decl.fun.name);
+                self.define(&decl.fun.name);
+                self.resolve_fun(&decl.fun);
+            }
+            Decl::Class(decl) => {
                 self.declare(&decl.name);
                 self.define(&decl.name);
-
-                self.begin_scope(ScopeType::Function);
-                for parameter in decl.parameters.iter() {
-                    self.declare(parameter);
-                    self.define(parameter);
-                }
-                self.resolve_block(&decl.body);
-                self.end_scope();
             }
         }
+    }
+    fn resolve_fun(&mut self, fun: &Fun) {
+        self.begin_scope(ScopeType::Function);
+        for parameter in &fun.parameters {
+            self.declare(parameter);
+            self.define(parameter);
+        }
+        self.resolve_block(&fun.body);
+        self.end_scope();
     }
     fn resolve_stmt(&mut self, stmt: &Stmt) {
         match stmt {
@@ -187,7 +193,10 @@ impl Resolver<'_> {
             }
             Expr::Assignment(expr) => {
                 self.resolve_expr(&expr.value);
-                self.resolve_local(&expr.target);
+                match &expr.target {
+                    AssignmentTargetExpr::Variable(expr) => self.resolve_local(&expr.identifier),
+                    AssignmentTargetExpr::PropertyAccess(expr) => self.resolve_expr(&expr.object),
+                }
             }
             Expr::Grouping(expr) => {
                 self.resolve_expr(&expr.expr);
@@ -198,6 +207,10 @@ impl Resolver<'_> {
                     self.resolve_expr(argument);
                 }
             }
+            Expr::PropertyAccess(expr) => {
+                self.resolve_expr(&expr.object);
+            }
+            Expr::This(_) => {}
         }
     }
     fn resolve_local(&mut self, identifier: &Identifier) {
@@ -211,8 +224,6 @@ impl Resolver<'_> {
         if let Some((index, _)) = indexed_scope {
             self.resolutions.set(identifier, index);
         }
-
-        // TODO: unresolved global?
     }
     fn is_in_function(&self) -> bool {
         self.scopes

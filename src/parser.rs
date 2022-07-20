@@ -1,5 +1,5 @@
 use miette::{Diagnostic, Result};
-use std::{iter::Peekable, rc::Rc};
+use std::{fmt::Display, iter::Peekable, rc::Rc};
 use thiserror::Error;
 
 const MAX_FUN_ARGS: usize = 254;
@@ -10,7 +10,7 @@ use crate::{
     side_table::UniqueId,
     source::SourceSpan,
     value::Value,
-    SourceReference,
+    SourceOffset, SourceReference,
 };
 
 #[derive(Error, Diagnostic, Debug)]
@@ -66,14 +66,15 @@ pub enum ParserError {
         #[source_code]
         source_code: SourceReference,
     },
-    #[error("Can't have more than {} parameters to a function", MAX_FUN_ARGS)]
+    #[error("Can't have more than {} parameters to a {fun_type}", MAX_FUN_ARGS)]
     TooManyFunParams {
-        #[label("The function is defined here")]
+        #[label("The {fun_type} is defined here")]
         decl_at: SourceSpan,
         #[label("The {}th paramter is here", MAX_FUN_ARGS + 1)]
         too_many_params_at: SourceSpan,
         #[source_code]
         source_code: SourceReference,
+        fun_type: FunType,
     },
 }
 
@@ -84,6 +85,20 @@ pub struct ParserOpts {
 impl ParserOpts {
     pub fn for_repl(self) -> Self {
         Self { is_repl: true }
+    }
+}
+
+#[derive(Debug)]
+pub enum FunType {
+    FunDecl,
+    Method,
+}
+impl Display for FunType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            FunType::FunDecl => "function",
+            FunType::Method => "method",
+        })
     }
 }
 
@@ -147,13 +162,34 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         }
     }
     fn parse_decl_or_stmt(&mut self) -> Result<DeclOrStmt, ParserError> {
+        if self.consume_token(TokenType::Class).is_some() {
+            return Ok(DeclOrStmt::Decl(Decl::Class(self.parse_class_decl()?)));
+        }
         if self.consume_token(TokenType::Var).is_some() {
             return Ok(DeclOrStmt::Decl(Decl::Var(self.parse_var_decl()?)));
         }
         if self.consume_token(TokenType::Fun).is_some() {
-            return Ok(DeclOrStmt::Decl(Decl::Fun(Rc::new(self.parse_fun_decl()?))));
+            return Ok(DeclOrStmt::Decl(Decl::Fun(self.parse_fun_decl()?)));
         }
         Ok(DeclOrStmt::Stmt(self.parse_stmt()?))
+    }
+    fn parse_class_decl(&mut self) -> Result<ClassDecl, ParserError> {
+        let class_span = self.extract_current_token_span(TokenType::Class);
+        let name = self.parse_identifier()?;
+        self.consume_token_or_default_error(&TokenType::OpenBrace)?;
+        let mut methods = Vec::new();
+        loop {
+            match self.consume_token(TokenType::CloseBrace) {
+                Some(tok) => {
+                    break Ok(ClassDecl {
+                        source_span: SourceSpan::range(class_span.start(), tok.span.end()),
+                        name,
+                        methods,
+                    })
+                }
+                None => methods.push(Rc::new(self.parse_fun(FunType::Method, None)?)),
+            }
+        }
     }
     fn parse_var_decl(&mut self) -> Result<VarDecl, ParserError> {
         let var_span = self.extract_current_token_span(TokenType::Var);
@@ -174,6 +210,17 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
     }
     fn parse_fun_decl(&mut self) -> Result<FunDecl, ParserError> {
         let fun_span = self.extract_current_token_span(TokenType::Fun);
+        let fun = self.parse_fun(FunType::FunDecl, Some(fun_span.start()))?;
+        Ok(FunDecl {
+            source_span: SourceSpan::range(fun_span.start(), fun.source_span().end()),
+            fun: Rc::new(fun),
+        })
+    }
+    fn parse_fun(
+        &mut self,
+        fun_type: FunType,
+        start_offset: Option<SourceOffset>,
+    ) -> Result<Fun, ParserError> {
         let name = self.parse_identifier()?;
         self.consume_token_or_default_error(&TokenType::OpenParen)?;
         let parameters = match self.consume_token(TokenType::CloseParen) {
@@ -194,17 +241,24 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
 
         if let Some(param) = parameters.get(MAX_FUN_ARGS + 1) {
             self.recovered_errors.push(ParserError::TooManyFunParams {
-                decl_at: SourceSpan::range(fun_span.start(), name.source_span().end()),
+                decl_at: SourceSpan::range(
+                    start_offset.unwrap_or_else(|| name.source_span().start()),
+                    name.source_span().end(),
+                ),
                 too_many_params_at: param.source_span(),
                 source_code: self.source_reference.clone(),
+                fun_type,
             });
         }
 
         self.consume_token_or_default_error(&TokenType::OpenBrace)?;
         let body_block = self.parse_block_stmt()?;
 
-        Ok(FunDecl {
-            source_span: SourceSpan::range(fun_span.start(), body_block.source_span().end()),
+        Ok(Fun {
+            source_span: SourceSpan::range(
+                start_offset.unwrap_or_else(|| name.source_span().start()),
+                body_block.source_span().end(),
+            ),
             name,
             parameters,
             body: body_block.body,
@@ -402,9 +456,10 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         fn expr_to_assignment_target(
             expr: Expr,
             source_reference: &SourceReference,
-        ) -> Result<Identifier, ParserError> {
+        ) -> Result<AssignmentTargetExpr, ParserError> {
             match expr {
-                Expr::Variable(var) => Ok(var.identifier),
+                Expr::Variable(expr) => Ok(AssignmentTargetExpr::Variable(expr)),
+                Expr::PropertyAccess(expr) => Ok(AssignmentTargetExpr::PropertyAccess(expr)),
                 other => Err(ParserError::InvalidAssignmentTarget {
                     found_at: other.source_span(),
                     source_code: source_reference.clone(),
@@ -541,8 +596,8 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
     }
     fn parse_call_expr(&mut self) -> Result<Expr, ParserError> {
         let mut expr = self.parse_primary_expr()?;
-        while self.consume_token(TokenType::OpenParen).is_some() {
-            expr = {
+        loop {
+            expr = if self.consume_token(TokenType::OpenParen).is_some() {
                 let mut arguments = Vec::new();
                 let close_paren_span = match self.consume_token_to_span(TokenType::CloseParen) {
                     Some(span) => span,
@@ -570,6 +625,14 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
                     arguments,
                     close_paren_span,
                 })
+            } else if self.consume_token(TokenType::Dot).is_some() {
+                let property = self.parse_identifier()?;
+                Expr::PropertyAccess(PropertyAccessExpr {
+                    object: Box::new(expr),
+                    property,
+                })
+            } else {
+                break;
             }
         }
         Ok(expr)
@@ -591,6 +654,12 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
 
         if let Some(literal) = literal {
             return Ok(Expr::Literal(literal));
+        }
+
+        if let Some(this) = self.consume_token(TokenType::This) {
+            return Ok(Expr::This(ThisExpr {
+                source_span: this.span,
+            }));
         }
 
         if let Some(identifier) = self.consume_match(|token| match &token.token_type {

@@ -10,8 +10,8 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use libtest_mimic::{self, run_tests, Arguments, Outcome, Test};
 use lox_rs::{
-    ast::PrettyPrint, Interpreter, Parser, ParserError, ParserOpts, ResolverError, RuntimeError,
-    Scanner, ScannerError, SourceOffset, SourceReference, SourceSpan,
+    Interpreter, Parser, ParserError, ParserOpts, ResolverError, RuntimeError, Scanner,
+    ScannerError, SourceOffset, SourceReference, SourceSpan,
 };
 use miette::{miette, IntoDiagnostic, Result};
 use regex::Regex;
@@ -505,6 +505,17 @@ impl FmtError for RuntimeError {
                 actual_type.fmt_a(),
                 format_span(found_at, source)
             ),
+            RuntimeError::PropertyAccessOnNonObject {
+                actual_type: _,
+                property_name: _,
+                found_at: _,
+                source_code: _,
+            } => todo!(),
+            RuntimeError::UnknownProperty {
+                name: _,
+                found_at: _,
+                source_code: _,
+            } => todo!(),
         }
     }
 }

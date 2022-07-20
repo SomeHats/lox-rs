@@ -69,6 +69,23 @@ pub enum RuntimeError {
         #[source_code]
         source_code: SourceReference,
     },
+    #[error("Only objects have properties")]
+    PropertyAccessOnNonObject {
+        actual_type: ValueType,
+        property_name: String,
+        #[label("Attempted to access {property_name} on {} here", .actual_type.fmt_a())]
+        found_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
+    },
+    #[error("Unknown property {name}")]
+    UnknownProperty {
+        name: String,
+        #[label("This property is unknown")]
+        found_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
+    },
 }
 
 #[derive(Debug)]
@@ -181,29 +198,49 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
     fn eval_decl(&mut self, decl: &Decl, ctx: &Ctx) -> Result<RuntimeValue, RuntimeError> {
         match decl {
             Decl::Var(decl) => self.eval_var_decl(decl, ctx),
-            Decl::Fun(decl) => {
-                let id = self.get_next_value_id();
-                self.environment
-                    .as_ref()
-                    .borrow_mut()
-                    .define(
-                        &decl.name.name,
-                        RuntimeValue::Function(Rc::new(LoxFunction {
-                            id,
-                            declaration: decl.clone(),
-                            closure: self.environment.clone(),
-                            ctx: ctx.clone(),
-                        })),
-                    )
-                    .map_err(|_| RuntimeError::AlreadyDefinedVariable {
+            Decl::Fun(decl) => self
+                .environment
+                .as_ref()
+                .borrow_mut()
+                .define(
+                    &decl.fun.name.name,
+                    RuntimeValue::Function(Rc::new(LoxFunction {
+                        id: UniqueId::new(),
+                        fun: decl.fun.clone(),
+                        closure: self.environment.clone(),
+                        ctx: ctx.clone(),
+                    })),
+                )
+                .map_err(|_| RuntimeError::AlreadyDefinedVariable {
+                    name: decl.fun.name.name.clone(),
+                    found_at: SourceSpan::range(
+                        decl.source_span.start(),
+                        decl.fun.name.source_span.end(),
+                    ),
+                    source_code: ctx.source_code.clone(),
+                }),
+            Decl::Class(decl) => self
+                .environment
+                .as_ref()
+                .borrow_mut()
+                .define(
+                    &decl.name.name,
+                    RuntimeValue::Class(Rc::new(LoxClass {
+                        id: UniqueId::new(),
                         name: decl.name.name.clone(),
-                        found_at: SourceSpan::range(
-                            decl.source_span.start(),
-                            decl.name.source_span.end(),
-                        ),
-                        source_code: ctx.source_code.clone(),
-                    })
-            }
+                        closure: self.environment.clone(),
+                        methods: decl.methods.clone(),
+                        ctx: ctx.clone(),
+                    })),
+                )
+                .map_err(|_| RuntimeError::AlreadyDefinedVariable {
+                    name: decl.name.name.clone(),
+                    found_at: SourceSpan::range(
+                        decl.source_span.start(),
+                        decl.name.source_span.end(),
+                    ),
+                    source_code: ctx.source_code.clone(),
+                }),
         }
     }
     fn eval_var_decl(&mut self, decl: &VarDecl, ctx: &Ctx) -> Result<RuntimeValue, RuntimeError> {
@@ -383,34 +420,79 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
             Expr::Grouping(GroupingExpr { expr }) => self.eval_expr(expr, ctx),
             Expr::Assignment(AssignmentExpr { target, value }) => {
                 let value = self.eval_expr(value, ctx)?;
-                self.lookup_identifier_mut(target, move |environment| {
-                    environment
-                        .assign(&target.name, value.clone())
-                        .ok_or_else(|| RuntimeError::UndefinedVariable {
-                            name: target.name.clone(),
-                            found_at: target.source_span(),
-                            source_code: ctx.source_code.clone(),
+                match target {
+                    AssignmentTargetExpr::Variable(target) => {
+                        self.lookup_identifier_mut(&target.identifier, |environment| {
+                            environment
+                                .assign(&target.identifier.name, value.clone())
+                                .ok_or_else(|| RuntimeError::UndefinedVariable {
+                                    name: target.identifier.name.clone(),
+                                    found_at: target.source_span(),
+                                    source_code: ctx.source_code.clone(),
+                                })
                         })
-                })
-            }
-            Expr::Call(call_expr) => {
-                let callee_val = self.eval_expr(&call_expr.callee, ctx)?;
-                match callee_val {
-                    RuntimeValue::NativeFunction(native_fn) => self.eval_call(
-                        call_expr.source_span(),
-                        &*native_fn,
-                        &call_expr.arguments,
-                        ctx,
-                    ),
-                    RuntimeValue::Function(fun) => {
-                        self.eval_call(call_expr.source_span(), &*fun, &call_expr.arguments, ctx)
                     }
-                    other => Err(RuntimeError::UncallableValue {
-                        actual_type: other.type_of(),
-                        found_at: call_expr.source_span(),
+                    AssignmentTargetExpr::PropertyAccess(target) => {
+                        match self.eval_expr(&target.object, ctx)? {
+                            RuntimeValue::Object(object) => {
+                                object.set(&target.property.name, value.clone());
+                                Ok(value)
+                            }
+                            value => Err(RuntimeError::PropertyAccessOnNonObject {
+                                actual_type: value.type_of(),
+                                property_name: target.property.name.clone(),
+                                found_at: target.property.source_span(),
+                                source_code: ctx.source_code.clone(),
+                            }),
+                        }
+                    }
+                }
+            }
+            Expr::Call(call_expr) => match self.eval_expr(&call_expr.callee, ctx)? {
+                RuntimeValue::NativeFunction(native_fn) => self.eval_call(
+                    call_expr.source_span(),
+                    &*native_fn,
+                    &call_expr.arguments,
+                    ctx,
+                ),
+                RuntimeValue::Function(fun) => {
+                    self.eval_call(call_expr.source_span(), &*fun, &call_expr.arguments, ctx)
+                }
+                RuntimeValue::Class(class) => {
+                    self.eval_call(call_expr.source_span(), &class, &call_expr.arguments, ctx)
+                }
+                other => Err(RuntimeError::UncallableValue {
+                    actual_type: other.type_of(),
+                    found_at: call_expr.source_span(),
+                    source_code: ctx.source_code.clone(),
+                }),
+            },
+            Expr::PropertyAccess(access_expr) => {
+                match self.eval_expr(&access_expr.object, ctx)? {
+                    RuntimeValue::Object(object) => object
+                        .get(&access_expr.property.name)
+                        .ok_or_else(|| RuntimeError::UnknownProperty {
+                            name: access_expr.property.name.clone(),
+                            found_at: access_expr.source_span(),
+                            source_code: ctx.source_code.clone(),
+                        }),
+                    value => Err(RuntimeError::PropertyAccessOnNonObject {
+                        actual_type: value.type_of(),
+                        property_name: access_expr.property.name.clone(),
+                        found_at: access_expr.source_span(),
                         source_code: ctx.source_code.clone(),
                     }),
                 }
+            }
+            Expr::This(this_expr) => {
+                self.environment
+                    .borrow()
+                    .get_this()
+                    .ok_or_else(|| RuntimeError::UnknownProperty {
+                        name: "this".to_string(),
+                        found_at: this_expr.source_span(),
+                        source_code: ctx.source_code.clone(),
+                    })
             }
         }
     }
@@ -536,14 +618,14 @@ impl PartialEq for LoxNativeFunction {
 }
 
 pub struct LoxFunction {
-    id: usize,
-    declaration: Rc<FunDecl>,
+    id: UniqueId,
+    fun: Rc<Fun>,
     closure: EnvironmentRef,
     ctx: Ctx,
 }
 impl LoxCallable for LoxFunction {
     fn arity(&self) -> usize {
-        self.declaration.parameters.len()
+        self.fun.parameters.len()
     }
 
     fn call<W: Write>(
@@ -552,7 +634,7 @@ impl LoxCallable for LoxFunction {
         args: &[RuntimeValue],
     ) -> Result<RuntimeValue, RuntimeError> {
         let mut call_env = Environment::new_with_parent(self.closure.clone());
-        for (name, value) in self.declaration.parameters.iter().zip_eq(args) {
+        for (name, value) in self.fun.parameters.iter().zip_eq(args) {
             call_env.define(&name.name, value.clone()).map_err(|_| {
                 RuntimeError::AlreadyDefinedVariable {
                     name: name.name.clone(),
@@ -564,7 +646,7 @@ impl LoxCallable for LoxFunction {
         interpreter.run_with_env(
             call_env.wrap(),
             |interpreter| -> Result<RuntimeValue, RuntimeError> {
-                for stmt in self.declaration.body.iter() {
+                for stmt in self.fun.body.iter() {
                     match interpreter.eval_decl_or_stmt(stmt, &self.ctx) {
                         Completion::Normal(_) => continue,
                         Completion::Return(value) => return Ok(value),
@@ -578,16 +660,7 @@ impl LoxCallable for LoxFunction {
 }
 impl Display for LoxFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "fun {}({}) {{ ... }}",
-            self.declaration.name.name,
-            self.declaration
-                .parameters
-                .iter()
-                .map(|param| &param.name)
-                .join(", ")
-        )
+        write!(f, "fun {}() {{ ... }}", self.fun.name.name,)
     }
 }
 impl Debug for LoxFunction {
@@ -601,11 +674,99 @@ impl PartialEq for LoxFunction {
     }
 }
 
+pub struct LoxClass {
+    id: UniqueId,
+    name: String,
+    closure: EnvironmentRef,
+    methods: Vec<Rc<Fun>>,
+    ctx: Ctx,
+}
+impl Display for LoxClass {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<class {}>", self.name)
+    }
+}
+impl Debug for LoxClass {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+impl PartialEq for LoxClass {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+impl LoxCallable for Rc<LoxClass> {
+    fn arity(&self) -> usize {
+        0
+    }
+
+    fn call<W: Write>(
+        &self,
+        _: &mut Interpreter<W>,
+        _: &[RuntimeValue],
+    ) -> Result<RuntimeValue, RuntimeError> {
+        let object = Rc::new(LoxObject {
+            id: UniqueId::new(),
+            class: self.clone(),
+            values: RefCell::new(HashMap::new()),
+        });
+        let object_closure = Environment::new_with_parent(self.closure.clone()).wrap();
+
+        for method in self.methods.iter() {
+            let fun = LoxFunction {
+                id: UniqueId::new(),
+                fun: method.clone(),
+                closure: object_closure.clone(),
+                ctx: self.ctx.clone(),
+            };
+            object.values.borrow_mut().insert(
+                method.name.name.clone(),
+                RuntimeValue::Function(Rc::new(fun)),
+            );
+        }
+
+        object_closure.borrow_mut().this_value = Some(RuntimeValue::Object(object.clone()));
+        Ok(RuntimeValue::Object(object))
+    }
+}
+
+pub struct LoxObject {
+    id: UniqueId,
+    class: Rc<LoxClass>,
+    values: RefCell<HashMap<String, RuntimeValue>>,
+}
+impl LoxObject {
+    fn get(&self, name: &str) -> Option<RuntimeValue> {
+        self.values.borrow().get(name).cloned()
+    }
+    fn set(&self, name: &str, value: RuntimeValue) {
+        self.values.borrow_mut().insert(name.to_string(), value);
+    }
+}
+impl Display for LoxObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<object {}>", self.class.name)
+    }
+}
+impl Debug for LoxObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+impl PartialEq for LoxObject {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
 #[derive(Clone, PartialEq)]
 pub enum RuntimeValue {
     Basic(Value),
     NativeFunction(Rc<LoxNativeFunction>),
     Function(Rc<LoxFunction>),
+    Class(Rc<LoxClass>),
+    Object(Rc<LoxObject>),
 }
 impl Display for RuntimeValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -613,6 +774,8 @@ impl Display for RuntimeValue {
             RuntimeValue::Basic(value) => Display::fmt(value, f),
             RuntimeValue::NativeFunction(value) => Display::fmt(value, f),
             RuntimeValue::Function(value) => Display::fmt(value, f),
+            RuntimeValue::Class(value) => Display::fmt(value, f),
+            RuntimeValue::Object(value) => Display::fmt(value, f),
         }
     }
 }
@@ -622,6 +785,8 @@ impl Debug for RuntimeValue {
             Self::Basic(value) => Debug::fmt(value, f),
             Self::NativeFunction(value) => Debug::fmt(value, f),
             Self::Function(value) => Debug::fmt(value, f),
+            Self::Class(value) => Debug::fmt(value, f),
+            Self::Object(value) => Debug::fmt(value, f),
         }
     }
 }
@@ -663,6 +828,8 @@ impl RuntimeValue {
             RuntimeValue::Basic(value) => value.type_of(),
             RuntimeValue::NativeFunction(_) => ValueType::Function,
             RuntimeValue::Function(_) => ValueType::Function,
+            RuntimeValue::Class(_) => ValueType::Class,
+            RuntimeValue::Object(_) => ValueType::Object,
         }
     }
     fn cast_number<F: Fn(ValueDescriptor, ValueType) -> RuntimeError>(
@@ -697,6 +864,7 @@ impl RuntimeValue {
 struct Environment {
     values: HashMap<String, RuntimeValue>,
     parent: Option<EnvironmentRef>,
+    this_value: Option<RuntimeValue>,
 }
 impl Environment {
     fn wrap(self) -> EnvironmentRef {
@@ -706,6 +874,7 @@ impl Environment {
         Self {
             values: HashMap::new(),
             parent: None,
+            this_value: None,
         }
     }
     fn new_with_parent(parent: EnvironmentRef) -> Self {
@@ -763,6 +932,13 @@ impl Environment {
                 .and_then(|parent| parent.borrow_mut().ancestor_mut(depth - 1, cb))
         }
     }
+    fn get_this(&self) -> Option<RuntimeValue> {
+        self.this_value.as_ref().cloned().or_else(|| {
+            self.parent
+                .as_ref()
+                .and_then(|parent| parent.borrow().get_this())
+        })
+    }
 }
 
 fn try_for_each_and_return_last<In, F: FnMut(&In) -> Completion>(
@@ -796,5 +972,16 @@ mod lox_native_fns {
     }
     pub fn type_of(args: &In) -> Out {
         Ok(args.get(0).unwrap().type_of().to_string().into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::mem::size_of;
+
+    #[test]
+    fn runtime_value_size() {
+        assert_eq!(size_of::<RuntimeValue>(), 24);
     }
 }

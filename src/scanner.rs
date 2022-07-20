@@ -272,15 +272,15 @@ impl<'a> Iterator for Scanner<'a> {
                     });
                 }
             }
-            Some(ch) if ch.is_digit(10) => {
+            Some(ch) if ch.is_ascii_digit() => {
                 // numbers
                 let num_start = self.current_offset;
-                self.advance_while(|ch| ch.is_digit(10));
+                self.advance_while(|ch| ch.is_ascii_digit());
                 if self.peek(1) == Some('.')
-                    && self.peek(2).map(|ch| ch.is_digit(10)).unwrap_or(false)
+                    && self.peek(2).map(|ch| ch.is_ascii_digit()).unwrap_or(false)
                 {
                     self.advance();
-                    self.advance_while(|ch| ch.is_digit(10));
+                    self.advance_while(|ch| ch.is_ascii_digit());
                 }
 
                 let number: f64 = self.source[num_start..=self.current_offset]

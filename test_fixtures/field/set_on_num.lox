@@ -1,1 +1,1 @@
-123.foo = "value"; // RuntimeError: Only instances have fields.
+123.foo = "value"; // RuntimeError: cannot access property foo on a number from l1c5 to l1c8

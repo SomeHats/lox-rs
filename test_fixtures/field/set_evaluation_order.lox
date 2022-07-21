@@ -1,2 +1,2 @@
-undefined1.bar // RuntimeError: Undefined variable 'undefined1'.
+undefined1.bar // RuntimeError: undefined variable undefined2 from l2c5 to l2c15
   = undefined2;

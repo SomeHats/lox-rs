@@ -10,7 +10,9 @@ use std::{
     rc::Rc,
 };
 
-pub struct LoxClass {
+#[derive(Clone)]
+pub struct LoxClass(Rc<LoxClassImpl>);
+struct LoxClassImpl {
     id: UniqueId,
     name: String,
     closure: EnvironmentRef,
@@ -19,7 +21,7 @@ pub struct LoxClass {
 }
 impl LoxClass {
     pub fn new(name: &str, closure: EnvironmentRef, methods: Vec<Rc<ast::Fun>>, ctx: Ctx) -> Self {
-        Self {
+        Self(Rc::new(LoxClassImpl {
             id: UniqueId::new(),
             name: name.to_string(),
             closure,
@@ -28,24 +30,24 @@ impl LoxClass {
                 .map(|method| (method.name.name.clone(), method))
                 .collect(),
             ctx,
-        }
+        }))
     }
     pub fn name(&self) -> &str {
-        &self.name
+        &self.0.name
     }
     pub fn lookup_method(&self, name: &str) -> Option<Rc<ast::Fun>> {
-        self.methods.get(name).cloned()
+        self.0.methods.get(name).cloned()
     }
     pub fn closure(&self) -> &EnvironmentRef {
-        &self.closure
+        &self.0.closure
     }
     pub fn ctx(&self) -> &Ctx {
-        &self.ctx
+        &self.0.ctx
     }
 }
 impl Display for LoxClass {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<class {}>", self.name)
+        write!(f, "<class {}>", self.0.name)
     }
 }
 impl Debug for LoxClass {
@@ -55,12 +57,15 @@ impl Debug for LoxClass {
 }
 impl PartialEq for LoxClass {
     fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
+        self.0.id == other.0.id
     }
 }
-impl LoxCallable for Rc<LoxClass> {
+impl LoxCallable for LoxClass {
     fn arity(&self) -> usize {
-        0
+        self.0
+            .methods
+            .get("init")
+            .map_or(0, |init| init.parameters.len())
     }
 
     fn call<W: Write>(

@@ -1,1 +1,1 @@
-return "wat"; // RuntimeError: at 'return': Can't return from top-level code.
+return "wat"; // ResolverError: return outside of function from l1c1 to l1c7

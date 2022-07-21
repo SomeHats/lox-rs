@@ -60,6 +60,12 @@ pub enum ResolverError {
         #[source_code]
         source_code: SourceReference,
     },
+    #[error("Cannot use `this` outside of a class")]
+    ThisOutsideOfClass {
+        #[label("Found here")]
+        found_at: SourceSpan,
+        source_code: SourceReference,
+    },
 }
 
 pub type Resolutions = SideTable<Identifier, usize>;
@@ -219,7 +225,20 @@ impl Resolver<'_> {
             Expr::PropertyAccess(expr) => {
                 self.resolve_expr(&expr.object);
             }
-            Expr::This(_) => {}
+            Expr::This(expr) => {
+                if self
+                    .scopes
+                    .iter()
+                    .rev()
+                    .find(|scope| scope.has_this)
+                    .is_none()
+                {
+                    self.errors.push(ResolverError::ThisOutsideOfClass {
+                        found_at: expr.source_span(),
+                        source_code: self.source_reference.clone(),
+                    })
+                }
+            }
         }
     }
     fn resolve_local(&mut self, identifier: &Identifier) {

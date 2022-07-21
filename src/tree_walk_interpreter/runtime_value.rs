@@ -14,9 +14,9 @@ pub enum RuntimeValue {
     String(Rc<String>),
     Number(f64),
     Boolean(bool),
-    NativeFunction(Rc<LoxNativeFunction>),
-    Function(Rc<LoxFunction>),
-    Class(Rc<LoxClass>),
+    NativeFunction(LoxNativeFunction),
+    Function(LoxFunction),
+    Class(LoxClass),
     Object(LoxObject),
     Nil,
 }

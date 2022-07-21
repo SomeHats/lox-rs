@@ -92,11 +92,11 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                 .borrow_mut()
                 .define(
                     &decl.fun.name.name,
-                    RuntimeValue::Function(Rc::new(lox_function::LoxFunction::new(
+                    RuntimeValue::Function(lox_function::LoxFunction::new(
                         decl.fun.clone(),
                         self.environment.clone(),
                         ctx.clone(),
-                    ))),
+                    )),
                 )
                 .map_err(|_| RuntimeError::AlreadyDefinedVariable {
                     name: decl.fun.name.name.clone(),
@@ -112,12 +112,12 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                 .borrow_mut()
                 .define(
                     &decl.name.name,
-                    RuntimeValue::Class(Rc::new(lox_class::LoxClass::new(
+                    RuntimeValue::Class(lox_class::LoxClass::new(
                         &decl.name.name,
                         self.environment.clone(),
                         decl.methods.clone(),
                         ctx.clone(),
-                    ))),
+                    )),
                 )
                 .map_err(|_| RuntimeError::AlreadyDefinedVariable {
                     name: decl.name.name.clone(),
@@ -337,12 +337,12 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
             Expr::Call(call_expr) => match self.eval_expr(&call_expr.callee, ctx)? {
                 RuntimeValue::NativeFunction(native_fn) => self.eval_call(
                     call_expr.source_span(),
-                    &*native_fn,
+                    &native_fn,
                     &call_expr.arguments,
                     ctx,
                 ),
                 RuntimeValue::Function(fun) => {
-                    self.eval_call(call_expr.source_span(), &*fun, &call_expr.arguments, ctx)
+                    self.eval_call(call_expr.source_span(), &fun, &call_expr.arguments, ctx)
                 }
                 RuntimeValue::Class(class) => {
                     self.eval_call(call_expr.source_span(), &class, &call_expr.arguments, ctx)
@@ -448,12 +448,12 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
             .borrow_mut()
             .define(
                 name,
-                RuntimeValue::NativeFunction(Rc::new(lox_native_function::LoxNativeFunction::new(
+                RuntimeValue::NativeFunction(lox_native_function::LoxNativeFunction::new(
                     id,
                     name.to_string(),
                     arity,
                     implementation,
-                ))),
+                )),
             )
             .unwrap();
     }

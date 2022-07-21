@@ -3,4 +3,4 @@ class Foo {}
 var foo = Foo();
 foo.bar = "not fn";
 
-foo.bar(); // RuntimeError: Can only call functions and classes.
+foo.bar(); // RuntimeError: cannot call a string from l6c1 to l6c10

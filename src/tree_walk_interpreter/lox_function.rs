@@ -13,7 +13,9 @@ use std::{
     rc::Rc,
 };
 
-pub struct LoxFunction {
+#[derive(Clone)]
+pub struct LoxFunction(Rc<LoxFunctionImpl>);
+struct LoxFunctionImpl {
     id: UniqueId,
     fun: Rc<ast::Fun>,
     closure: EnvironmentRef,
@@ -21,17 +23,17 @@ pub struct LoxFunction {
 }
 impl LoxFunction {
     pub fn new(fun: Rc<ast::Fun>, closure: EnvironmentRef, ctx: Ctx) -> Self {
-        Self {
+        Self(Rc::new(LoxFunctionImpl {
             id: UniqueId::new(),
             fun,
             closure,
             ctx,
-        }
+        }))
     }
 }
 impl LoxCallable for LoxFunction {
     fn arity(&self) -> usize {
-        self.fun.parameters.len()
+        self.0.fun.parameters.len()
     }
 
     fn call<W: Write>(
@@ -39,21 +41,21 @@ impl LoxCallable for LoxFunction {
         interpreter: &mut Interpreter<W>,
         args: &[RuntimeValue],
     ) -> Result<RuntimeValue, RuntimeError> {
-        let mut call_env = Environment::new_with_parent(self.closure.clone());
-        for (name, value) in self.fun.parameters.iter().zip_eq(args) {
+        let mut call_env = Environment::new_with_parent(self.0.closure.clone());
+        for (name, value) in self.0.fun.parameters.iter().zip_eq(args) {
             call_env.define(&name.name, value.clone()).map_err(|_| {
                 RuntimeError::AlreadyDefinedVariable {
                     name: name.name.clone(),
                     found_at: name.source_span(),
-                    source_code: self.ctx.source_code.clone(),
+                    source_code: self.0.ctx.source_code.clone(),
                 }
             })?;
         }
         interpreter.run_with_env(
             call_env.wrap(),
             |interpreter| -> Result<RuntimeValue, RuntimeError> {
-                for stmt in self.fun.body.iter() {
-                    match interpreter.eval_decl_or_stmt(stmt, &self.ctx) {
+                for stmt in self.0.fun.body.iter() {
+                    match interpreter.eval_decl_or_stmt(stmt, &self.0.ctx) {
                         Completion::Normal(_) => continue,
                         Completion::Return(value) => return Ok(value),
                         Completion::Error(err) => return Err(err),
@@ -66,7 +68,7 @@ impl LoxCallable for LoxFunction {
 }
 impl Display for LoxFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "fun {}() {{ ... }}", self.fun.name.name,)
+        write!(f, "fun {}() {{ ... }}", self.0.fun.name.name,)
     }
 }
 impl Debug for LoxFunction {
@@ -76,6 +78,6 @@ impl Debug for LoxFunction {
 }
 impl PartialEq for LoxFunction {
     fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
+        self.0.id == other.0.id
     }
 }

@@ -1,1 +1,1 @@
-"str".foo = "value"; // RuntimeError: Only instances have fields.
+"str".foo = "value"; // RuntimeError: cannot access property foo on a string from l1c7 to l1c10

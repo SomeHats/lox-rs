@@ -2,4 +2,4 @@ class Foo {
   method(a, b) {}
 }
 
-Foo().method(1); // RuntimeError: Expected 2 arguments but got 1.
+Foo().method(1); // RuntimeError: expected call arity 2 got 1 from l5c1 to l5c16

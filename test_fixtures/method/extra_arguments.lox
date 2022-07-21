@@ -5,4 +5,4 @@ class Foo {
   }
 }
 
-Foo().method(1, 2, 3, 4); // RuntimeError: Expected 2 arguments but got 4.
+Foo().method(1, 2, 3, 4); // RuntimeError: expected call arity 2 got 4 from l8c1 to l8c25

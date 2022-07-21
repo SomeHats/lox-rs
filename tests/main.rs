@@ -17,7 +17,8 @@ use miette::{miette, IntoDiagnostic, Result};
 use regex::Regex;
 
 lazy_static! {
-    static ref IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((benchmark|class|constructor|field|inheritance|limit|method|regression|return|super|this)/|(closure/close_over_method_parameter).lox)").unwrap();
+    static ref IGNORE_PATTERN: Regex =
+        Regex::new("test_fixtures/((benchmark|inheritance|limit|regression|super)/)").unwrap();
 }
 
 fn main() {
@@ -446,6 +447,13 @@ impl FmtError for ResolverError {
                 "ResolverError: return outside of function {}",
                 format_span(found_at, source)
             ),
+            ResolverError::ThisOutsideOfClass {
+                found_at,
+                source_code: _,
+            } => format!(
+                "ResolverError: this outside of class {}",
+                format_span(found_at, source)
+            ),
         }
     }
 }
@@ -506,16 +514,25 @@ impl FmtError for RuntimeError {
                 format_span(found_at, source)
             ),
             RuntimeError::PropertyAccessOnNonObject {
-                actual_type: _,
-                property_name: _,
-                found_at: _,
+                actual_type,
+                property_name,
+                found_at,
                 source_code: _,
-            } => todo!(),
+            } => format!(
+                "RuntimeError: cannot access property {} on {} {}",
+                property_name,
+                actual_type.fmt_a(),
+                format_span(found_at, source)
+            ),
             RuntimeError::UnknownProperty {
-                name: _,
-                found_at: _,
+                name,
+                found_at,
                 source_code: _,
-            } => todo!(),
+            } => format!(
+                "RuntimeError: unknown property {} {}",
+                name,
+                format_span(found_at, source)
+            ),
         }
     }
 }

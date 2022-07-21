@@ -1,2 +1,2 @@
 class Foo {}
-Foo.bar = "value"; // RuntimeError: Only instances have fields.
+Foo.bar = "value"; // RuntimeError: cannot access property bar on a class from l2c5 to l2c8

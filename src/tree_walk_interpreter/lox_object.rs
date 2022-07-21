@@ -13,12 +13,12 @@ use std::{
 pub struct LoxObject(Rc<LoxObjectImpl>);
 struct LoxObjectImpl {
     id: UniqueId,
-    class: Rc<LoxClass>,
+    class: LoxClass,
     values: RefCell<HashMap<String, RuntimeValue>>,
 }
 
 impl LoxObject {
-    pub fn new(class: Rc<LoxClass>) -> Self {
+    pub fn new(class: LoxClass) -> Self {
         Self(Rc::new(LoxObjectImpl {
             id: UniqueId::new(),
             class,
@@ -30,7 +30,7 @@ impl LoxObject {
             self.0
                 .class
                 .lookup_method(name)
-                .map(|method| RuntimeValue::Function(Rc::new(self.bind(method))))
+                .map(|method| RuntimeValue::Function(self.bind(method)))
         })
     }
     pub fn set(&self, name: &str, value: RuntimeValue) {

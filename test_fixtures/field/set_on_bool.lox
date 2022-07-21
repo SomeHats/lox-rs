@@ -1,1 +1,1 @@
-true.foo = "value"; // RuntimeError: Only instances have fields.
+true.foo = "value"; // RuntimeError: cannot access property foo on a boolean from l1c6 to l1c9

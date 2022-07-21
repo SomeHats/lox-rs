@@ -1,1 +1,1 @@
-nil.foo = "value"; // RuntimeError: Only instances have fields.
+nil.foo = "value"; // RuntimeError: cannot access property foo on nil from l1c5 to l1c8

@@ -19,6 +19,7 @@ struct ScopeEntry {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ScopeType {
+    Class,
     Function,
     Block,
     Global,
@@ -28,6 +29,7 @@ enum ScopeType {
 struct Scope {
     scope_type: ScopeType,
     entries: HashMap<String, ScopeEntry>,
+    has_this: bool,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -117,6 +119,13 @@ impl Resolver<'_> {
             Decl::Class(decl) => {
                 self.declare(&decl.name);
                 self.define(&decl.name);
+
+                self.begin_scope(ScopeType::Class);
+                self.scopes.last_mut().unwrap().has_this = true;
+                for method in &decl.methods {
+                    self.resolve_fun(method);
+                }
+                self.end_scope();
             }
         }
     }
@@ -234,6 +243,7 @@ impl Resolver<'_> {
         self.scopes.push(Scope {
             scope_type,
             entries: HashMap::new(),
+            has_this: false,
         });
     }
     fn end_scope(&mut self) {

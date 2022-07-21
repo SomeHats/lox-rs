@@ -1,2 +1,2 @@
-// ParserError: [line 2] Error at 'class': Expect expression.
+// ParserError: UnexpectedExpressionToken found Class from l2c14 to l2c19
 while (true) class Foo {}

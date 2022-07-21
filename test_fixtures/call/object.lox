@@ -1,4 +1,4 @@
 class Foo {}
 
 var foo = Foo();
-foo(); // RuntimeError: Can only call functions and classes.
+foo(); // RuntimeError: cannot call an object from l4c1 to l4c6

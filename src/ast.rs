@@ -9,7 +9,6 @@ use colored::Colorize;
 use crate::{
     side_table::{Unique, UniqueId},
     source::SourceSpan,
-    value::Value,
     SourceReference,
 };
 
@@ -473,8 +472,16 @@ impl AstNode for BinaryExpr {
 }
 
 #[derive(Debug)]
+pub enum LiteralValue {
+    String(String),
+    Number(f64),
+    Boolean(bool),
+    Nil,
+}
+
+#[derive(Debug)]
 pub struct LiteralExpr {
-    pub value: Value,
+    pub value: LiteralValue,
     pub source_span: SourceSpan,
 }
 impl PrettyPrint for LiteralExpr {

@@ -9,7 +9,6 @@ use crate::{
     scanner::{Token, TokenType, TokenTypeName},
     side_table::UniqueId,
     source::SourceSpan,
-    value::Value,
     SourceOffset, SourceReference,
 };
 
@@ -395,7 +394,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
         let body = Stmt::While(WhileStmt {
             while_span: for_span,
             condition: condition.unwrap_or(Expr::Literal(LiteralExpr {
-                value: Value::Boolean(true),
+                value: LiteralValue::Boolean(true),
                 source_span: for_span,
             })),
             body: Box::new(Stmt::Block(body)),
@@ -642,11 +641,11 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
             Some(LiteralExpr {
                 source_span: token.span,
                 value: match &token.token_type {
-                    TokenType::False => Value::Boolean(false),
-                    TokenType::True => Value::Boolean(true),
-                    TokenType::Nil => Value::Nil,
-                    TokenType::Number(number) => Value::Number(*number),
-                    TokenType::String(string) => Value::String(Rc::new(string.clone())),
+                    TokenType::False => LiteralValue::Boolean(false),
+                    TokenType::True => LiteralValue::Boolean(true),
+                    TokenType::Nil => LiteralValue::Nil,
+                    TokenType::Number(number) => LiteralValue::Number(*number),
+                    TokenType::String(string) => LiteralValue::String(string.clone()),
                     _ => return None,
                 },
             })

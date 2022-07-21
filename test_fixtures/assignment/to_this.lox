@@ -1,7 +1,7 @@
 class Foo {
   Foo() {
-    this = "value"; // RuntimeError: at '=': Invalid assignment target.
-  }
+    this = "value"; // ParserError: InvalidAssignmentTarget from l3c5 to l3c9
+  } // ParserError: UnexpectedExpressionToken found CloseBrace at l4c3
 }
 
 Foo();

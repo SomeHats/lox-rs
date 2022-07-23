@@ -39,7 +39,7 @@ impl LoxClass {
         if let Some(ref super_class) = super_class {
             closure = {
                 let mut env = Environment::new_with_parent(closure);
-                env.define(SUPER, RuntimeValue::Class(super_class.clone()))
+                env.define_local(SUPER, RuntimeValue::Class(super_class.clone()))
                     .unwrap();
                 env.wrap()
             }

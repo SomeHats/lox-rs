@@ -35,38 +35,23 @@ impl Environment {
     fn is_local(&self) -> bool {
         !self.is_global()
     }
-    pub fn define(&mut self, name: &str, value: RuntimeValue) -> Result<RuntimeValue, ()> {
+    pub fn define_local(&mut self, name: &str, value: RuntimeValue) -> Result<RuntimeValue, ()> {
         if self.values.contains_key(name) && self.is_local() {
             Err(())
         } else {
-            self.values.insert(name.to_string(), value);
-            Ok(self.get(name).unwrap())
+            self.values.insert(name.to_string(), value.clone());
+            Ok(value)
         }
     }
-    pub fn get(&self, name: &str) -> Option<RuntimeValue> {
-        self.values.get(name).map(Clone::clone).or_else(|| {
-            self.parent
-                .as_ref()
-                .and_then(|parent| parent.borrow().get(name))
-        })
+    pub fn get_local(&self, name: &str) -> Result<RuntimeValue, ()> {
+        self.values.get(name).cloned().ok_or(())
     }
-    pub fn get_at(&self, depth: usize, name: &str) -> Option<RuntimeValue> {
-        if depth == 0 {
-            self.get(name)
-        } else {
-            self.parent
-                .as_ref()
-                .and_then(|parent| parent.borrow().get_at(depth - 1, name))
-        }
-    }
-    pub fn assign(&mut self, name: &str, value: RuntimeValue) -> Option<RuntimeValue> {
+    pub fn assign_local(&mut self, name: &str, value: RuntimeValue) -> Result<RuntimeValue, ()> {
         if let Some(target) = self.values.get_mut(name) {
-            *target = value;
-            Some(self.get(name).unwrap())
-        } else if let Some(parent) = &mut self.parent {
-            parent.as_ref().borrow_mut().assign(name, value)
+            *target = value.clone();
+            Ok(value)
         } else {
-            None
+            Err(())
         }
     }
     pub fn ancestor<T, F: Fn(&Self) -> T>(&self, depth: usize, cb: F) -> Option<T> {

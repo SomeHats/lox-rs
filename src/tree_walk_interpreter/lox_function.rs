@@ -56,13 +56,13 @@ impl LoxCallable for LoxFunction {
     ) -> Result<RuntimeValue, RuntimeError> {
         let mut call_env = Environment::new_with_parent(self.0.closure.clone());
         for (name, value) in self.0.fun.parameters.iter().zip_eq(args) {
-            call_env.define(&name.name, value.clone()).map_err(|_| {
-                RuntimeError::AlreadyDefinedVariable {
+            call_env
+                .define_local(&name.name, value.clone())
+                .map_err(|_| RuntimeError::AlreadyDefinedVariable {
                     name: name.name.clone(),
                     found_at: name.source_span(),
                     source_code: self.0.ctx.source_code.clone(),
-                }
-            })?;
+                })?;
         }
         let return_value = interpreter.run_with_env(
             call_env.wrap(),

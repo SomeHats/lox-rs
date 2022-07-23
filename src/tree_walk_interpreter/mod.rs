@@ -91,7 +91,7 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                 .environment
                 .as_ref()
                 .borrow_mut()
-                .define(
+                .define_local(
                     &decl.fun.name.name,
                     RuntimeValue::Function(lox_function::LoxFunction::new(
                         decl.fun.clone(),
@@ -128,7 +128,7 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                 self.environment
                     .as_ref()
                     .borrow_mut()
-                    .define(
+                    .define_local(
                         &decl.name.name,
                         RuntimeValue::Class(lox_class::LoxClass::new(
                             &decl.name.name,
@@ -160,7 +160,7 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
         self.environment
             .as_ref()
             .borrow_mut()
-            .define(&decl.identifier.name, initial_value)
+            .define_local(&decl.identifier.name, initial_value)
             .map_err(|_| RuntimeError::AlreadyDefinedVariable {
                 name: decl.identifier.name.clone(),
                 found_at: decl.identifier.source_span(),
@@ -320,8 +320,8 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                     AssignmentTargetExpr::Variable(target) => {
                         self.lookup_identifier_mut(&target.identifier, |environment| {
                             environment
-                                .assign(&target.identifier.name, value.clone())
-                                .ok_or_else(|| RuntimeError::UndefinedVariable {
+                                .assign_local(&target.identifier.name, value.clone())
+                                .map_err(|_| RuntimeError::UndefinedVariable {
                                     name: target.identifier.name.clone(),
                                     found_at: target.source_span(),
                                     source_code: ctx.source_code.clone(),
@@ -391,16 +391,11 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                     })
             }
             Expr::Super(super_expr) => {
-                let distance = self
-                    .resolutions
-                    .get(&super_expr.keyword)
-                    .expect("super must already be resolved or error handled by resolver");
-
-                let super_class = self
-                    .environment
-                    .borrow()
-                    .get_at(*distance, SUPER)
-                    .expect("super must be defined according to resolver");
+                let super_class = self.lookup_identifier_mut(&super_expr.keyword, |environment| {
+                    environment
+                        .get_local(SUPER)
+                        .expect("super must be defined according to resolver")
+                });
 
                 let super_class = match super_class {
                     RuntimeValue::Class(class) => class,
@@ -441,8 +436,8 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
     ) -> Result<RuntimeValue, RuntimeError> {
         self.lookup_identifier(identifier, |environment| {
             environment
-                .get(&identifier.name)
-                .ok_or_else(|| RuntimeError::UndefinedVariable {
+                .get_local(&identifier.name)
+                .map_err(|_| RuntimeError::UndefinedVariable {
                     name: identifier.name.clone(),
                     found_at: identifier.source_span(),
                     source_code: ctx.source_code.clone(),
@@ -513,7 +508,7 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
         self.environment
             .as_ref()
             .borrow_mut()
-            .define(
+            .define_local(
                 name,
                 RuntimeValue::NativeFunction(lox_native_function::LoxNativeFunction::new(
                     id,

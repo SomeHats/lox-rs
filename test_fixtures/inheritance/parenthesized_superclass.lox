@@ -1,4 +1,4 @@
 class Foo {}
 
-// ParserError: [line 4] Error at '(': Expect superclass name.
+// ParserError: UnexpectedToken found OpenParen at l4c13 expected Identifier
 class Bar < (Foo) {}

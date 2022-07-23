@@ -1,5 +1,5 @@
 class Foo {
   init() {
-    return "result"; // RuntimeError: at 'return': Can't return a value from an initializer.
+    return "result"; // ResolverError: cannot return value from init from l3c12 to l3c20
   }
 }

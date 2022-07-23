@@ -1,3 +1,3 @@
 fun foo() {}
 
-class Subclass < foo {} // RuntimeError: Superclass must be a class.
+class Subclass < foo {} // RuntimeError: class Subclass cannot extend foo because it is a function from l3c18 to l3c21

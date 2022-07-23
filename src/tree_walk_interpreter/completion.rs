@@ -1,5 +1,22 @@
 use super::{RuntimeError, RuntimeValue};
-use std::ops::{ControlFlow, FromResidual, Try};
+use std::{
+    convert::Infallible,
+    ops::{ControlFlow, FromResidual, Try},
+};
+
+#[derive(Debug)]
+pub enum AbruptCompletion {
+    Return(RuntimeValue),
+    Error(RuntimeError),
+}
+impl FromResidual<AbruptCompletion> for Result<RuntimeValue, RuntimeError> {
+    fn from_residual(residual: AbruptCompletion) -> Self {
+        match residual {
+            AbruptCompletion::Return(value) => Ok(value),
+            AbruptCompletion::Error(error) => Err(error),
+        }
+    }
+}
 
 pub enum Completion {
     Normal(RuntimeValue),
@@ -7,16 +24,19 @@ pub enum Completion {
     Error(RuntimeError),
 }
 
-#[derive(Debug)]
-pub enum AbruptCompletion {
-    Return(RuntimeValue),
-    Error(RuntimeError),
-}
 impl FromResidual for Completion {
     fn from_residual(residual: <Self as Try>::Residual) -> Self {
         match residual {
             AbruptCompletion::Return(value) => Completion::Return(value),
             AbruptCompletion::Error(err) => Completion::Error(err),
+        }
+    }
+}
+impl FromResidual<Result<Infallible, RuntimeError>> for Completion {
+    fn from_residual(residual: Result<Infallible, RuntimeError>) -> Self {
+        match residual {
+            Ok(_) => unreachable!(),
+            Err(error) => Completion::Error(error),
         }
     }
 }

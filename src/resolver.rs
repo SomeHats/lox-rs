@@ -20,9 +20,16 @@ struct ScopeEntry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ScopeType {
     Class,
-    Function,
+    Function(FunctionType),
     Block,
     Global,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FunctionType {
+    Function,
+    Initializer,
+    Method,
 }
 
 #[derive(Debug)]
@@ -64,6 +71,22 @@ pub enum ResolverError {
     ThisOutsideOfClass {
         #[label("Found here")]
         found_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
+    },
+    #[error("Cannot return a value from an initializer")]
+    ReturnValueFromInit {
+        #[label("Value found here")]
+        found_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
+    },
+    #[error("Class can't inherit from itself")]
+    ClassInheritFromSelf {
+        name: String,
+        #[label("Class {name} is trying to inherit from itself")]
+        found_at: SourceSpan,
+        #[source_code]
         source_code: SourceReference,
     },
 }
@@ -75,6 +98,7 @@ pub struct Resolver<'a> {
     errors: Vec<ResolverError>,
     source_reference: SourceReference,
     resolutions: &'a mut Resolutions,
+    current_function: Option<FunctionType>,
 }
 
 impl Resolver<'_> {
@@ -87,6 +111,7 @@ impl Resolver<'_> {
             errors: Vec::new(),
             source_reference: program.source_reference.clone(),
             resolutions,
+            current_function: None,
         };
         resolver.resolve_program(program);
         if resolver.errors.is_empty() {
@@ -120,29 +145,53 @@ impl Resolver<'_> {
             Decl::Fun(decl) => {
                 self.declare(&decl.fun.name);
                 self.define(&decl.fun.name);
-                self.resolve_fun(&decl.fun);
+                self.resolve_fun(&decl.fun, FunctionType::Function);
             }
             Decl::Class(decl) => {
                 self.declare(&decl.name);
                 self.define(&decl.name);
 
+                if let Some(super_class) = &decl.super_class {
+                    if super_class.name == decl.name.name {
+                        self.errors.push(ResolverError::ClassInheritFromSelf {
+                            name: decl.name.name.clone(),
+                            found_at: SourceSpan::range(
+                                decl.name.source_span.start(),
+                                super_class.source_span().end(),
+                            ),
+                            source_code: self.source_reference.clone(),
+                        });
+                    }
+                    self.resolve_variable(super_class)
+                }
+
                 self.begin_scope(ScopeType::Class);
                 self.scopes.last_mut().unwrap().has_this = true;
                 for method in &decl.methods {
-                    self.resolve_fun(method);
+                    self.resolve_fun(
+                        method,
+                        if method.name.name == "init" {
+                            FunctionType::Initializer
+                        } else {
+                            FunctionType::Method
+                        },
+                    );
                 }
                 self.end_scope();
             }
         }
     }
-    fn resolve_fun(&mut self, fun: &Fun) {
-        self.begin_scope(ScopeType::Function);
+    fn resolve_fun(&mut self, fun: &Fun, function_type: FunctionType) {
+        let enclosing_function = self.current_function;
+        self.current_function = Some(function_type);
+        self.begin_scope(ScopeType::Function(function_type));
         for parameter in &fun.parameters {
             self.declare(parameter);
             self.define(parameter);
         }
         self.resolve_block(&fun.body);
         self.end_scope();
+        self.current_function = enclosing_function;
     }
     fn resolve_stmt(&mut self, stmt: &Stmt) {
         match stmt {
@@ -171,8 +220,16 @@ impl Resolver<'_> {
             Stmt::Return(stmt) => {
                 if let Some(expression) = &stmt.expression {
                     self.resolve_expr(expression);
+
+                    if self.current_function == Some(FunctionType::Initializer) {
+                        self.errors.push(ResolverError::ReturnValueFromInit {
+                            found_at: expression.source_span(),
+                            source_code: self.source_reference.clone(),
+                        })
+                    }
                 }
-                if !self.is_in_function() {
+
+                if self.current_function == None {
                     self.errors.push(ResolverError::ReturnFromTopLevel {
                         found_at: stmt.return_span,
                         source_code: self.source_reference.clone(),
@@ -192,19 +249,7 @@ impl Resolver<'_> {
             }
             Expr::Literal(_) => {}
             Expr::Variable(expr) => {
-                if let Some(ScopeEntry {
-                    status: ScopeEntryStatus::Declared,
-                    declared_at,
-                }) = self.get_entry(&expr.identifier.name)
-                {
-                    self.errors
-                        .push(ResolverError::VariableUsedInOwnInitializer {
-                            declared_at,
-                            used_at: expr.source_span(),
-                            source_code: self.source_reference.clone(),
-                        })
-                }
-                self.resolve_local(&expr.identifier);
+                self.resolve_variable(&expr.identifier);
             }
             Expr::Assignment(expr) => {
                 self.resolve_expr(&expr.value);
@@ -226,13 +271,7 @@ impl Resolver<'_> {
                 self.resolve_expr(&expr.object);
             }
             Expr::This(expr) => {
-                if self
-                    .scopes
-                    .iter()
-                    .rev()
-                    .find(|scope| scope.has_this)
-                    .is_none()
-                {
+                if !self.scopes.iter().rev().any(|scope| scope.has_this) {
                     self.errors.push(ResolverError::ThisOutsideOfClass {
                         found_at: expr.source_span(),
                         source_code: self.source_reference.clone(),
@@ -240,6 +279,18 @@ impl Resolver<'_> {
                 }
             }
         }
+    }
+    fn resolve_variable(&mut self, identifier: &Identifier) {
+        if let Some(ScopeEntry{status, declared_at}) = self.get_entry(&identifier.name) && status == ScopeEntryStatus::Declared {
+            self.errors
+                .push(ResolverError::VariableUsedInOwnInitializer {
+                    declared_at,
+                    used_at: identifier.source_span(),
+                    source_code: self.source_reference.clone(),
+                })
+        }
+
+        self.resolve_local(identifier);
     }
     fn resolve_local(&mut self, identifier: &Identifier) {
         let indexed_scope = self
@@ -252,11 +303,6 @@ impl Resolver<'_> {
         if let Some((index, _)) = indexed_scope {
             self.resolutions.set(identifier, index);
         }
-    }
-    fn is_in_function(&self) -> bool {
-        self.scopes
-            .iter()
-            .any(|scope| scope.scope_type == ScopeType::Function)
     }
     fn begin_scope(&mut self, scope_type: ScopeType) {
         self.scopes.push(Scope {

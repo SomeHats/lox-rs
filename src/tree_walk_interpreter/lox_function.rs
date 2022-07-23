@@ -1,6 +1,6 @@
 use super::{
-    completion::Completion, environment::Environment, lox_callable::LoxCallable, Ctx,
-    EnvironmentRef, Interpreter, RuntimeError, RuntimeValue,
+    environment::Environment, lox_callable::LoxCallable, Ctx, EnvironmentRef, Interpreter,
+    RuntimeError, RuntimeValue,
 };
 use crate::{
     ast::{self, AstNode},
@@ -20,14 +20,16 @@ struct LoxFunctionImpl {
     fun: Rc<ast::Fun>,
     closure: EnvironmentRef,
     ctx: Ctx,
+    is_initializer: bool,
 }
 impl LoxFunction {
-    pub fn new(fun: Rc<ast::Fun>, closure: EnvironmentRef, ctx: Ctx) -> Self {
+    pub fn new(fun: Rc<ast::Fun>, closure: EnvironmentRef, ctx: Ctx, is_initializer: bool) -> Self {
         Self(Rc::new(LoxFunctionImpl {
             id: UniqueId::new(),
             fun,
             closure,
             ctx,
+            is_initializer,
         }))
     }
 }
@@ -51,19 +53,27 @@ impl LoxCallable for LoxFunction {
                 }
             })?;
         }
-        interpreter.run_with_env(
+        let return_value = interpreter.run_with_env(
             call_env.wrap(),
             |interpreter| -> Result<RuntimeValue, RuntimeError> {
                 for stmt in self.0.fun.body.iter() {
-                    match interpreter.eval_decl_or_stmt(stmt, &self.0.ctx) {
-                        Completion::Normal(_) => continue,
-                        Completion::Return(value) => return Ok(value),
-                        Completion::Error(err) => return Err(err),
-                    }
+                    interpreter.eval_decl_or_stmt(stmt, &self.0.ctx)?;
                 }
+
                 Ok(RuntimeValue::nil())
             },
-        )
+        )?;
+
+        if self.0.is_initializer {
+            Ok(self
+                .0
+                .closure
+                .borrow()
+                .get_this()
+                .expect("must have this if is_initializer"))
+        } else {
+            Ok(return_value)
+        }
     }
 }
 impl Display for LoxFunction {

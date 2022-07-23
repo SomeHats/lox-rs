@@ -5,4 +5,4 @@ class Foo {
   }
 }
 
-var foo = Foo(1, 2, 3, 4); // RuntimeError: Expected 2 arguments but got 4.
+var foo = Foo(1, 2, 3, 4); // RuntimeError: expected call arity 2 got 4 from l8c11 to l8c26

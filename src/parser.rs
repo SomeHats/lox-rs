@@ -175,6 +175,11 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
     fn parse_class_decl(&mut self) -> Result<ClassDecl, ParserError> {
         let class_span = self.extract_current_token_span(TokenType::Class);
         let name = self.parse_identifier()?;
+        let super_class = self
+            .consume_token(TokenType::Less)
+            .is_some()
+            .then(|| self.parse_identifier())
+            .transpose()?;
         self.consume_token_or_default_error(&TokenType::OpenBrace)?;
         let mut methods = Vec::new();
         loop {
@@ -183,6 +188,7 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
                     break Ok(ClassDecl {
                         source_span: SourceSpan::range(class_span.start(), tok.span.end()),
                         name,
+                        super_class,
                         methods,
                     })
                 }

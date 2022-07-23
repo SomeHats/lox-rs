@@ -149,6 +149,7 @@ impl AstNode for FunDecl {
 pub struct ClassDecl {
     pub source_span: SourceSpan,
     pub name: Identifier,
+    pub super_class: Option<Identifier>,
     pub methods: Vec<Rc<Fun>>,
 }
 impl AstNode for ClassDecl {
@@ -161,6 +162,10 @@ impl PrettyPrint for ClassDecl {
         f.block_sexp(|f| {
             f.keyword_item("class");
             f.item(&self.name);
+            if let Some(super_class) = &self.super_class {
+                f.keyword_item("<");
+                f.item(super_class);
+            }
             for method in &*self.methods {
                 f.break_line();
                 f.block_sexp(|f| {

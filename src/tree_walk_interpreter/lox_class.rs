@@ -15,15 +15,23 @@ pub struct LoxClass(Rc<LoxClassImpl>);
 struct LoxClassImpl {
     id: UniqueId,
     name: String,
+    super_class: Option<LoxClass>,
     closure: EnvironmentRef,
     methods: HashMap<String, Rc<ast::Fun>>,
     ctx: Ctx,
 }
 impl LoxClass {
-    pub fn new(name: &str, closure: EnvironmentRef, methods: Vec<Rc<ast::Fun>>, ctx: Ctx) -> Self {
+    pub fn new(
+        name: &str,
+        super_class: Option<LoxClass>,
+        closure: EnvironmentRef,
+        methods: Vec<Rc<ast::Fun>>,
+        ctx: Ctx,
+    ) -> Self {
         Self(Rc::new(LoxClassImpl {
             id: UniqueId::new(),
             name: name.to_string(),
+            super_class,
             closure,
             methods: methods
                 .into_iter()
@@ -36,7 +44,12 @@ impl LoxClass {
         &self.0.name
     }
     pub fn lookup_method(&self, name: &str) -> Option<Rc<ast::Fun>> {
-        self.0.methods.get(name).cloned()
+        self.0.methods.get(name).cloned().or_else(|| {
+            self.0
+                .super_class
+                .as_ref()
+                .and_then(|super_class| super_class.lookup_method(name))
+        })
     }
     pub fn closure(&self) -> &EnvironmentRef {
         &self.0.closure
@@ -62,17 +75,19 @@ impl PartialEq for LoxClass {
 }
 impl LoxCallable for LoxClass {
     fn arity(&self) -> usize {
-        self.0
-            .methods
-            .get("init")
+        self.lookup_method("init")
             .map_or(0, |init| init.parameters.len())
     }
 
     fn call<W: Write>(
         &self,
-        _: &mut Interpreter<W>,
-        _: &[RuntimeValue],
+        interpreter: &mut Interpreter<W>,
+        args: &[RuntimeValue],
     ) -> Result<RuntimeValue, RuntimeError> {
-        Ok(RuntimeValue::Object(LoxObject::new(self.clone())))
+        let object = LoxObject::new(self.clone());
+        if let Some(init) = object.get_method("init") {
+            init.call(interpreter, args)?;
+        }
+        Ok(RuntimeValue::Object(object))
     }
 }

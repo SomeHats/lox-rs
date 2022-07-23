@@ -96,6 +96,7 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                         decl.fun.clone(),
                         self.environment.clone(),
                         ctx.clone(),
+                        false,
                     )),
                 )
                 .map_err(|_| RuntimeError::AlreadyDefinedVariable {
@@ -106,27 +107,45 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                     ),
                     source_code: ctx.source_code.clone(),
                 }),
-            Decl::Class(decl) => self
-                .environment
-                .as_ref()
-                .borrow_mut()
-                .define(
-                    &decl.name.name,
-                    RuntimeValue::Class(lox_class::LoxClass::new(
+            Decl::Class(decl) => {
+                let super_class = if let Some(super_class_id) = &decl.super_class {
+                    let super_class = self.eval_variable(super_class_id, ctx)?;
+                    if let RuntimeValue::Class(super_class) = super_class {
+                        Some(super_class)
+                    } else {
+                        return Err(RuntimeError::NonClassExtend {
+                            class_name: decl.name.name.clone(),
+                            super_class_name: super_class_id.name.clone(),
+                            actual_type: super_class.type_of(),
+                            found_at: super_class_id.source_span(),
+                            source_code: ctx.source_code.clone(),
+                        });
+                    }
+                } else {
+                    None
+                };
+                self.environment
+                    .as_ref()
+                    .borrow_mut()
+                    .define(
                         &decl.name.name,
-                        self.environment.clone(),
-                        decl.methods.clone(),
-                        ctx.clone(),
-                    )),
-                )
-                .map_err(|_| RuntimeError::AlreadyDefinedVariable {
-                    name: decl.name.name.clone(),
-                    found_at: SourceSpan::range(
-                        decl.source_span.start(),
-                        decl.name.source_span.end(),
-                    ),
-                    source_code: ctx.source_code.clone(),
-                }),
+                        RuntimeValue::Class(lox_class::LoxClass::new(
+                            &decl.name.name,
+                            super_class,
+                            self.environment.clone(),
+                            decl.methods.clone(),
+                            ctx.clone(),
+                        )),
+                    )
+                    .map_err(|_| RuntimeError::AlreadyDefinedVariable {
+                        name: decl.name.name.clone(),
+                        found_at: SourceSpan::range(
+                            decl.source_span.start(),
+                            decl.name.source_span.end(),
+                        ),
+                        source_code: ctx.source_code.clone(),
+                    })
+            }
         }
     }
     fn eval_var_decl(&mut self, decl: &VarDecl, ctx: &Ctx) -> Result<RuntimeValue, RuntimeError> {
@@ -164,7 +183,7 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                 },
             ),
             Stmt::If(stmt) => {
-                if Completion::from(self.eval_expr(&stmt.condition, ctx))?.cast_boolean() {
+                if self.eval_expr(&stmt.condition, ctx)?.cast_boolean() {
                     self.eval_stmt(&stmt.then_branch, ctx)?;
                 } else if let Some(else_branch) = &stmt.else_branch {
                     self.eval_stmt(else_branch, ctx)?;
@@ -172,14 +191,14 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                 Completion::Normal(RuntimeValue::nil())
             }
             Stmt::While(stmt) => {
-                while Completion::from(self.eval_expr(&stmt.condition, ctx))?.cast_boolean() {
+                while self.eval_expr(&stmt.condition, ctx)?.cast_boolean() {
                     self.eval_stmt(&stmt.body, ctx)?;
                 }
                 Completion::Normal(RuntimeValue::nil())
             }
             Stmt::Return(stmt) => {
                 let value = match &stmt.expression {
-                    Some(expression) => Completion::from(self.eval_expr(expression, ctx))?,
+                    Some(expression) => self.eval_expr(expression, ctx)?,
                     None => RuntimeValue::nil(),
                 };
                 Completion::Return(value)
@@ -292,17 +311,7 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                 })
             }
             Expr::Literal(LiteralExpr { value, .. }) => Ok(value.into()),
-            Expr::Variable(VariableExpr { identifier }) => {
-                self.lookup_identifier(identifier, |environment| {
-                    environment.get(&identifier.name).ok_or_else(|| {
-                        RuntimeError::UndefinedVariable {
-                            name: identifier.name.clone(),
-                            found_at: identifier.source_span(),
-                            source_code: ctx.source_code.clone(),
-                        }
-                    })
-                })
-            }
+            Expr::Variable(VariableExpr { identifier }) => self.eval_variable(identifier, ctx),
             Expr::Grouping(GroupingExpr { expr }) => self.eval_expr(expr, ctx),
             Expr::Assignment(AssignmentExpr { target, value }) => {
                 let value = self.eval_expr(value, ctx)?;
@@ -381,6 +390,21 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                     })
             }
         }
+    }
+    fn eval_variable(
+        &mut self,
+        identifier: &Identifier,
+        ctx: &Ctx,
+    ) -> Result<RuntimeValue, RuntimeError> {
+        self.lookup_identifier(identifier, |environment| {
+            environment
+                .get(&identifier.name)
+                .ok_or_else(|| RuntimeError::UndefinedVariable {
+                    name: identifier.name.clone(),
+                    found_at: identifier.source_span(),
+                    source_code: ctx.source_code.clone(),
+                })
+        })
     }
     fn eval_call<Callable: lox_callable::LoxCallable>(
         &mut self,

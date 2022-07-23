@@ -1,2 +1,2 @@
 var Number = 123;
-class Foo < Number {} // RuntimeError: Superclass must be a class.
+class Foo < Number {} // RuntimeError: class Foo cannot extend Number because it is a number from l2c13 to l2c19

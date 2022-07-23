@@ -67,4 +67,14 @@ pub enum RuntimeError {
         #[source_code]
         source_code: SourceReference,
     },
+    #[error("Class {class_name} cannot extend non-class {super_class_name}")]
+    NonClassExtend {
+        class_name: String,
+        super_class_name: String,
+        actual_type: ValueType,
+        #[label("{} is {}, not a class", .super_class_name, .actual_type.fmt_a())]
+        found_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
+    },
 }

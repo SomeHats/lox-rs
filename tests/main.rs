@@ -18,7 +18,7 @@ use regex::Regex;
 
 lazy_static! {
     static ref IGNORE_PATTERN: Regex =
-        Regex::new("test_fixtures/((benchmark|inheritance|limit|regression|super)/)").unwrap();
+        Regex::new("test_fixtures/((benchmark|limit|regression|super)/|().lox$)").unwrap();
 }
 
 fn main() {
@@ -35,9 +35,6 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
-    // Run all tests and exit the application appropriatly (in this case, the
-    // test runner is a dummy runner which does nothing and says that all s
-    // passed).
     run_tests(&Arguments::from_args(), tests, |test| {
         match run_test(&test.data) {
             Ok(outcome) => outcome,
@@ -454,6 +451,22 @@ impl FmtError for ResolverError {
                 "ResolverError: this outside of class {}",
                 format_span(found_at, source)
             ),
+            ResolverError::ReturnValueFromInit {
+                found_at,
+                source_code: _,
+            } => format!(
+                "ResolverError: cannot return value from init {}",
+                format_span(found_at, source)
+            ),
+            ResolverError::ClassInheritFromSelf {
+                name,
+                found_at,
+                source_code: _,
+            } => format!(
+                "ResolverError: class {} cannot inherit from self {}",
+                name,
+                format_span(found_at, source)
+            ),
         }
     }
 }
@@ -531,6 +544,19 @@ impl FmtError for RuntimeError {
             } => format!(
                 "RuntimeError: unknown property {} {}",
                 name,
+                format_span(found_at, source)
+            ),
+            RuntimeError::NonClassExtend {
+                class_name,
+                super_class_name,
+                actual_type,
+                found_at,
+                source_code: _,
+            } => format!(
+                "RuntimeError: class {} cannot extend {} because it is {} {}",
+                class_name,
+                super_class_name,
+                actual_type.fmt_a(),
                 format_span(found_at, source)
             ),
         }

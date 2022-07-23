@@ -26,12 +26,18 @@ impl LoxObject {
         }))
     }
     pub fn get(&self, name: &str) -> Option<RuntimeValue> {
-        self.0.values.borrow().get(name).cloned().or_else(|| {
-            self.0
-                .class
-                .lookup_method(name)
-                .map(|method| RuntimeValue::Function(self.bind(method)))
-        })
+        self.0
+            .values
+            .borrow()
+            .get(name)
+            .cloned()
+            .or_else(|| self.get_method(name).map(RuntimeValue::Function))
+    }
+    pub fn get_method(&self, name: &str) -> Option<LoxFunction> {
+        self.0
+            .class
+            .lookup_method(name)
+            .map(|method| self.bind(method))
     }
     pub fn set(&self, name: &str, value: RuntimeValue) {
         self.0.values.borrow_mut().insert(name.to_string(), value);
@@ -43,6 +49,7 @@ impl LoxObject {
             method.clone(),
             environment.wrap(),
             self.0.class.ctx().clone(),
+            method.name.name == "init",
         )
     }
 }

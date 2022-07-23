@@ -1,0 +1,1 @@
+class Foo < Unknown {} // RuntimeError: undefined variable Unknown from l1c13 to l1c20

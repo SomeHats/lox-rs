@@ -10,7 +10,6 @@ pub type EnvironmentRef = Rc<RefCell<Environment>>;
 pub struct Environment {
     values: HashMap<String, RuntimeValue>,
     parent: Option<EnvironmentRef>,
-    this_value: Option<RuntimeValue>,
 }
 impl Environment {
     pub fn wrap(self) -> EnvironmentRef {
@@ -20,7 +19,6 @@ impl Environment {
         Self {
             values: HashMap::new(),
             parent: None,
-            this_value: None,
         }
     }
     pub fn new_with_parent(parent: EnvironmentRef) -> Self {
@@ -71,16 +69,6 @@ impl Environment {
                 .as_ref()
                 .and_then(|parent| parent.borrow_mut().ancestor_mut(depth - 1, cb))
         }
-    }
-    pub fn get_this(&self) -> Option<RuntimeValue> {
-        self.this_value.as_ref().cloned().or_else(|| {
-            self.parent
-                .as_ref()
-                .and_then(|parent| parent.borrow().get_this())
-        })
-    }
-    pub fn set_this(&mut self, this_value: Option<RuntimeValue>) {
-        self.this_value = this_value;
     }
     pub fn parent(&self) -> &Option<EnvironmentRef> {
         &self.parent

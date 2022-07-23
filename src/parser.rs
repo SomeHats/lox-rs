@@ -6,7 +6,7 @@ const MAX_FUN_ARGS: usize = 254;
 
 use crate::{
     ast::*,
-    keywords::SUPER,
+    keywords::{SUPER, THIS},
     scanner::{Token, TokenType, TokenTypeName},
     side_table::UniqueId,
     source::SourceSpan,
@@ -669,10 +669,9 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
             return Ok(Expr::Super(SuperExpr { keyword, method }));
         }
 
-        if let Some(this) = self.consume_token(TokenType::This) {
-            return Ok(Expr::This(ThisExpr {
-                source_span: this.span,
-            }));
+        if self.peek_or_eof().token_type == TokenType::This {
+            let keyword = self.parse_keyword_as_identifier(TokenType::This, THIS)?;
+            return Ok(Expr::This(ThisExpr { keyword }));
         }
 
         if let Some(identifier) = self.consume_match(|token| match &token.token_type {

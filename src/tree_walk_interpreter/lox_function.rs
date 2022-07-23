@@ -4,6 +4,7 @@ use super::{
 };
 use crate::{
     ast::{self, AstNode},
+    keywords::THIS,
     side_table::UniqueId,
 };
 use itertools::Itertools;
@@ -34,8 +35,8 @@ impl LoxFunction {
     }
     pub fn bind(&self, object: LoxObject) -> LoxFunction {
         let mut env = Environment::new_with_parent(self.0.closure.clone());
-        // env.define(THIS, RuntimeValue::Object(object)).unwrap();
-        env.set_this(Some(RuntimeValue::Object(object)));
+        env.define_local(THIS, RuntimeValue::Object(object))
+            .unwrap();
         LoxFunction::new(
             self.0.fun.clone(),
             env.wrap(),
@@ -80,7 +81,7 @@ impl LoxCallable for LoxFunction {
                 .0
                 .closure
                 .borrow()
-                .get_this()
+                .get_local(THIS)
                 .expect("must have this if is_initializer"))
         } else {
             Ok(return_value)

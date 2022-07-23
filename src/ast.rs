@@ -659,7 +659,7 @@ impl AstNode for PropertyAccessExpr {
 
 #[derive(Debug)]
 pub struct ThisExpr {
-    pub source_span: SourceSpan,
+    pub keyword: Identifier,
 }
 impl PrettyPrint for ThisExpr {
     fn fmt_pretty(&self, f: &mut PrettyPrinter) {
@@ -668,7 +668,7 @@ impl PrettyPrint for ThisExpr {
 }
 impl AstNode for ThisExpr {
     fn source_span(&self) -> SourceSpan {
-        self.source_span
+        self.keyword.source_span()
     }
 }
 

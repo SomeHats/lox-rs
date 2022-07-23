@@ -318,6 +318,7 @@ impl Resolver<'_> {
                         source_code: self.source_reference.clone(),
                     })
                 }
+                self.resolve_local(&expr.keyword);
             }
             Expr::Super(expr) => {
                 match self.current_class {

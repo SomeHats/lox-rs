@@ -380,16 +380,11 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                     }),
                 }
             }
-            Expr::This(this_expr) => {
-                self.environment
-                    .borrow()
-                    .get_this()
-                    .ok_or_else(|| RuntimeError::UnknownProperty {
-                        name: THIS.to_string(),
-                        found_at: this_expr.source_span(),
-                        source_code: ctx.source_code.clone(),
-                    })
-            }
+            Expr::This(this_expr) => self.lookup_identifier(&this_expr.keyword, |environment| {
+                Ok(environment
+                    .get_local(THIS)
+                    .expect("this should be defined according to resolver"))
+            }),
             Expr::Super(super_expr) => {
                 let super_class = self.lookup_identifier_mut(&super_expr.keyword, |environment| {
                     environment
@@ -402,15 +397,15 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                     _ => panic!("Super is {} not a class", super_class.type_of()),
                 };
 
+                let object_distance = self.resolutions.get(&super_expr.keyword).unwrap() - 1;
                 let object = self
                     .environment
                     .borrow()
-                    .parent()
-                    .as_ref()
-                    .expect("super must have parent env")
-                    .borrow()
-                    .get_this()
-                    .expect("super must have this");
+                    .ancestor(object_distance, |environment| {
+                        environment.get_local(THIS).unwrap()
+                    })
+                    .unwrap();
+
                 let object = match object {
                     RuntimeValue::Object(object) => object,
                     _ => panic!("This is {} not an object", object.type_of()),

@@ -2,6 +2,7 @@
 
 pub mod ast;
 mod fixed_que;
+mod keywords;
 mod parser;
 mod resolver;
 mod scanner;

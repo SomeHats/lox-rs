@@ -1,2 +1,1 @@
-super.foo("bar"); // RuntimeError: at 'super': Can't use 'super' outside of a class.
-super.foo; // RuntimeError: at 'super': Can't use 'super' outside of a class.
+super.foo("bar"); // ResolverError: super outside of class from l1c1 to l1c10

@@ -1,6 +1,6 @@
 use super::{
-    environment::Environment, lox_callable::LoxCallable, Ctx, EnvironmentRef, Interpreter,
-    RuntimeError, RuntimeValue,
+    environment::Environment, lox_callable::LoxCallable, lox_object::LoxObject, Ctx,
+    EnvironmentRef, Interpreter, RuntimeError, RuntimeValue,
 };
 use crate::{
     ast::{self, AstNode},
@@ -31,6 +31,17 @@ impl LoxFunction {
             ctx,
             is_initializer,
         }))
+    }
+    pub fn bind(&self, object: LoxObject) -> LoxFunction {
+        let mut env = Environment::new_with_parent(self.0.closure.clone());
+        // env.define(THIS, RuntimeValue::Object(object)).unwrap();
+        env.set_this(Some(RuntimeValue::Object(object)));
+        LoxFunction::new(
+            self.0.fun.clone(),
+            env.wrap(),
+            self.0.ctx.clone(),
+            self.0.is_initializer,
+        )
     }
 }
 impl LoxCallable for LoxFunction {

@@ -7,7 +7,7 @@ class Base {
 class Derived < Base {
   foo() {
     print "Derived.foo()"; // expect: Derived.foo()
-    super.foo("a", "b", "c", "d"); // RuntimeError: Expected 2 arguments but got 4.
+    super.foo("a", "b", "c", "d"); // RuntimeError: expected call arity 2 got 4 from l10c5 to l10c34
   }
 }
 

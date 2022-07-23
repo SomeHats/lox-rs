@@ -4,7 +4,7 @@ class A {
 
 class B < A {
   method() {
-    // ParserError: [line 8] Error at ')': Expect '.' after 'super'.
+    // ParserError: UnexpectedToken found CloseParen at l8c11 expected Dot
     (super).method();
-  }
+  } // ParserError: UnexpectedExpressionToken found CloseBrace at l9c3
 }

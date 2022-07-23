@@ -1,8 +1,16 @@
 use super::{
-    environment::EnvironmentRef, lox_callable::LoxCallable, lox_object::LoxObject, Ctx,
-    Interpreter, RuntimeValue,
+    environment::{Environment, EnvironmentRef},
+    lox_callable::LoxCallable,
+    lox_function::LoxFunction,
+    lox_object::LoxObject,
+    Ctx, Interpreter, RuntimeValue,
 };
-use crate::{ast, side_table::UniqueId, RuntimeError};
+use crate::{
+    ast,
+    keywords::{INIT, SUPER},
+    side_table::UniqueId,
+    RuntimeError,
+};
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
@@ -17,33 +25,47 @@ struct LoxClassImpl {
     name: String,
     super_class: Option<LoxClass>,
     closure: EnvironmentRef,
-    methods: HashMap<String, Rc<ast::Fun>>,
+    methods: HashMap<String, LoxFunction>,
     ctx: Ctx,
 }
 impl LoxClass {
     pub fn new(
         name: &str,
         super_class: Option<LoxClass>,
-        closure: EnvironmentRef,
+        mut closure: EnvironmentRef,
         methods: Vec<Rc<ast::Fun>>,
         ctx: Ctx,
     ) -> Self {
+        if let Some(ref super_class) = super_class {
+            closure = {
+                let mut env = Environment::new_with_parent(closure);
+                env.define(SUPER, RuntimeValue::Class(super_class.clone()))
+                    .unwrap();
+                env.wrap()
+            }
+        }
         Self(Rc::new(LoxClassImpl {
             id: UniqueId::new(),
             name: name.to_string(),
             super_class,
-            closure,
             methods: methods
                 .into_iter()
-                .map(|method| (method.name.name.clone(), method))
+                .map(|method| {
+                    let method_name = method.name.name.clone();
+                    let fun =
+                        LoxFunction::new(method, closure.clone(), ctx.clone(), method_name == INIT);
+
+                    (method_name, fun)
+                })
                 .collect(),
+            closure,
             ctx,
         }))
     }
     pub fn name(&self) -> &str {
         &self.0.name
     }
-    pub fn lookup_method(&self, name: &str) -> Option<Rc<ast::Fun>> {
+    pub fn lookup_method(&self, name: &str) -> Option<LoxFunction> {
         self.0.methods.get(name).cloned().or_else(|| {
             self.0
                 .super_class
@@ -75,8 +97,7 @@ impl PartialEq for LoxClass {
 }
 impl LoxCallable for LoxClass {
     fn arity(&self) -> usize {
-        self.lookup_method("init")
-            .map_or(0, |init| init.parameters.len())
+        self.lookup_method(INIT).map_or(0, |init| init.arity())
     }
 
     fn call<W: Write>(
@@ -85,7 +106,7 @@ impl LoxCallable for LoxClass {
         args: &[RuntimeValue],
     ) -> Result<RuntimeValue, RuntimeError> {
         let object = LoxObject::new(self.clone());
-        if let Some(init) = object.get_method("init") {
+        if let Some(init) = object.get_method(INIT) {
             init.call(interpreter, args)?;
         }
         Ok(RuntimeValue::Object(object))

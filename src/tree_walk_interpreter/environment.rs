@@ -50,6 +50,15 @@ impl Environment {
                 .and_then(|parent| parent.borrow().get(name))
         })
     }
+    pub fn get_at(&self, depth: usize, name: &str) -> Option<RuntimeValue> {
+        if depth == 0 {
+            self.get(name)
+        } else {
+            self.parent
+                .as_ref()
+                .and_then(|parent| parent.borrow().get_at(depth - 1, name))
+        }
+    }
     pub fn assign(&mut self, name: &str, value: RuntimeValue) -> Option<RuntimeValue> {
         if let Some(target) = self.values.get_mut(name) {
             *target = value;
@@ -87,5 +96,8 @@ impl Environment {
     }
     pub fn set_this(&mut self, this_value: Option<RuntimeValue>) {
         self.this_value = this_value;
+    }
+    pub fn parent(&self) -> &Option<EnvironmentRef> {
+        &self.parent
     }
 }

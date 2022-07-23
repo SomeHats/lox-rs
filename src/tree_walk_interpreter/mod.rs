@@ -10,6 +10,7 @@ mod runtime_value;
 
 use crate::{
     ast::*,
+    keywords::{SUPER, THIS},
     resolver::{Resolutions, Resolver, ResolverError},
     side_table::{SideTable, UniqueId},
     source::SourceSpan,
@@ -384,10 +385,52 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                     .borrow()
                     .get_this()
                     .ok_or_else(|| RuntimeError::UnknownProperty {
-                        name: "this".to_string(),
+                        name: THIS.to_string(),
                         found_at: this_expr.source_span(),
                         source_code: ctx.source_code.clone(),
                     })
+            }
+            Expr::Super(super_expr) => {
+                let distance = self
+                    .resolutions
+                    .get(&super_expr.keyword)
+                    .expect("super must already be resolved or error handled by resolver");
+
+                let super_class = self
+                    .environment
+                    .borrow()
+                    .get_at(*distance, SUPER)
+                    .expect("super must be defined according to resolver");
+
+                let super_class = match super_class {
+                    RuntimeValue::Class(class) => class,
+                    _ => panic!("Super is {} not a class", super_class.type_of()),
+                };
+
+                let object = self
+                    .environment
+                    .borrow()
+                    .parent()
+                    .as_ref()
+                    .expect("super must have parent env")
+                    .borrow()
+                    .get_this()
+                    .expect("super must have this");
+                let object = match object {
+                    RuntimeValue::Object(object) => object,
+                    _ => panic!("This is {} not an object", object.type_of()),
+                };
+
+                let method = super_class
+                    .lookup_method(&super_expr.method.name)
+                    .ok_or_else(|| RuntimeError::UnknownProperty {
+                        name: super_expr.method.name.clone(),
+                        found_at: super_expr.method.source_span(),
+                        source_code: ctx.source_code.clone(),
+                    })?
+                    .bind(object);
+
+                Ok(RuntimeValue::Function(method))
             }
         }
     }

@@ -18,7 +18,7 @@ use regex::Regex;
 
 lazy_static! {
     static ref IGNORE_PATTERN: Regex =
-        Regex::new("test_fixtures/((benchmark|limit|regression|super)/|().lox$)").unwrap();
+        Regex::new("test_fixtures/((benchmark|limit|regression)/|().lox$)").unwrap();
 }
 
 fn main() {
@@ -465,6 +465,20 @@ impl FmtError for ResolverError {
             } => format!(
                 "ResolverError: class {} cannot inherit from self {}",
                 name,
+                format_span(found_at, source)
+            ),
+            ResolverError::SuperOutsideOfClass {
+                found_at,
+                source_code: _,
+            } => format!(
+                "ResolverError: super outside of class {}",
+                format_span(found_at, source)
+            ),
+            ResolverError::SuperOutsideOfSubClass {
+                found_at,
+                source_code: _,
+            } => format!(
+                "ResolverError: super outside of subclass {}",
                 format_span(found_at, source)
             ),
         }

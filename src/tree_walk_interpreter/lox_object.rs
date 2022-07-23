@@ -1,7 +1,5 @@
-use super::{
-    environment::Environment, lox_class::LoxClass, lox_function::LoxFunction, RuntimeValue,
-};
-use crate::{ast, side_table::UniqueId};
+use super::{lox_class::LoxClass, lox_function::LoxFunction, RuntimeValue};
+use crate::side_table::UniqueId;
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -37,20 +35,10 @@ impl LoxObject {
         self.0
             .class
             .lookup_method(name)
-            .map(|method| self.bind(method))
+            .map(|method| method.bind(self.clone()))
     }
     pub fn set(&self, name: &str, value: RuntimeValue) {
         self.0.values.borrow_mut().insert(name.to_string(), value);
-    }
-    fn bind(&self, method: Rc<ast::Fun>) -> LoxFunction {
-        let mut environment = Environment::new_with_parent(self.0.class.closure().clone());
-        environment.set_this(Some(RuntimeValue::Object(self.clone())));
-        LoxFunction::new(
-            method.clone(),
-            environment.wrap(),
-            self.0.class.ctx().clone(),
-            method.name.name == "init",
-        )
     }
 }
 impl Display for LoxObject {

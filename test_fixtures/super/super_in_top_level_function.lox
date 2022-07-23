@@ -1,3 +1,3 @@
-  super.bar(); // RuntimeError: at 'super': Can't use 'super' outside of a class.
 fun foo() {
+  super.bar(); // ResolverError: super outside of class from l2c3 to l2c12
 }

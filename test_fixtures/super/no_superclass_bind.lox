@@ -1,6 +1,6 @@
 class Base {
   foo() {
-    super.doesNotExist; // RuntimeError: at 'super': Can't use 'super' in a class with no superclass.
+    super.doesNotExist; // ResolverError: super outside of subclass from l3c5 to l3c23
   }
 }
 

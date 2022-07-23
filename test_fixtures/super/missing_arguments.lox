@@ -6,7 +6,7 @@ class Base {
 
 class Derived < Base {
   foo() {
-    super.foo(1); // RuntimeError: Expected 2 arguments but got 1.
+    super.foo(1); // RuntimeError: expected call arity 2 got 1 from l9c5 to l9c17
   }
 }
 

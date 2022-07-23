@@ -6,6 +6,7 @@ const MAX_FUN_ARGS: usize = 254;
 
 use crate::{
     ast::*,
+    keywords::SUPER,
     scanner::{Token, TokenType, TokenTypeName},
     side_table::UniqueId,
     source::SourceSpan,
@@ -661,6 +662,13 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
             return Ok(Expr::Literal(literal));
         }
 
+        if self.peek_or_eof().token_type == TokenType::Super {
+            let keyword = self.parse_keyword_as_identifier(TokenType::Super, SUPER)?;
+            self.consume_token_or_default_error(&TokenType::Dot)?;
+            let method = self.parse_identifier()?;
+            return Ok(Expr::Super(SuperExpr { keyword, method }));
+        }
+
         if let Some(this) = self.consume_token(TokenType::This) {
             return Ok(Expr::This(ThisExpr {
                 source_span: this.span,
@@ -725,6 +733,18 @@ impl<Stream: Iterator<Item = Token>> Parser<Stream> {
             self.advance();
         }
         identifier
+    }
+    fn parse_keyword_as_identifier(
+        &mut self,
+        keyword_token: TokenType,
+        identifier_name: &str,
+    ) -> Result<Identifier, ParserError> {
+        let token = self.consume_token_or_default_error(&keyword_token)?;
+        Ok(Identifier {
+            id: UniqueId::new(),
+            name: identifier_name.to_string(),
+            source_span: token.span,
+        })
     }
     fn synchronize(&mut self) {
         while self.advance() {

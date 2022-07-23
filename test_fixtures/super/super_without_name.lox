@@ -2,6 +2,6 @@ class A {}
 
 class B < A {
   method() {
-    super.; // RuntimeError: at ';': Expect superclass method name.
-  }
+    super.; // ParserError: UnexpectedToken found Semicolon at l5c11 expected Identifier
+  } // ParserError: UnexpectedExpressionToken found CloseBrace at l6c3
 }

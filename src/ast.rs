@@ -673,6 +673,27 @@ impl AstNode for ThisExpr {
 }
 
 #[derive(Debug)]
+pub struct SuperExpr {
+    pub keyword: Identifier,
+    pub method: Identifier,
+}
+impl PrettyPrint for SuperExpr {
+    fn fmt_pretty(&self, f: &mut PrettyPrinter) {
+        f.push_str(&"super".purple());
+        f.push_str(".");
+        self.method.fmt_pretty(f);
+    }
+}
+impl AstNode for SuperExpr {
+    fn source_span(&self) -> SourceSpan {
+        SourceSpan::range(
+            self.keyword.source_span().start(),
+            self.method.source_span().end(),
+        )
+    }
+}
+
+#[derive(Debug)]
 pub enum Expr {
     Binary(BinaryExpr),
     Unary(UnaryExpr),
@@ -683,6 +704,7 @@ pub enum Expr {
     Call(CallExpr),
     PropertyAccess(PropertyAccessExpr),
     This(ThisExpr),
+    Super(SuperExpr),
 }
 impl PrettyPrint for Expr {
     fn fmt_pretty(&self, f: &mut PrettyPrinter) {
@@ -696,6 +718,7 @@ impl PrettyPrint for Expr {
             Self::Call(expr) => expr.fmt_pretty(f),
             Self::PropertyAccess(expr) => expr.fmt_pretty(f),
             Self::This(expr) => expr.fmt_pretty(f),
+            Self::Super(expr) => expr.fmt_pretty(f),
         }
     }
 }
@@ -711,6 +734,7 @@ impl AstNode for Expr {
             Self::Call(expr) => expr.source_span(),
             Self::PropertyAccess(expr) => expr.source_span(),
             Self::This(expr) => expr.source_span(),
+            Self::Super(expr) => expr.source_span(),
         }
     }
 }

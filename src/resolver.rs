@@ -3,7 +3,12 @@ use std::collections::HashMap;
 use miette::Diagnostic;
 use thiserror::Error;
 
-use crate::{ast::*, side_table::SideTable, SourceReference, SourceSpan};
+use crate::{
+    ast::*,
+    keywords::{INIT, SUPER, THIS},
+    side_table::SideTable,
+    SourceReference, SourceSpan,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ScopeEntryStatus {
@@ -32,11 +37,16 @@ enum FunctionType {
     Method,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClassType {
+    Class,
+    SubClass,
+}
+
 #[derive(Debug)]
 struct Scope {
     scope_type: ScopeType,
     entries: HashMap<String, ScopeEntry>,
-    has_this: bool,
 }
 
 #[derive(Error, Diagnostic, Debug)]
@@ -74,6 +84,20 @@ pub enum ResolverError {
         #[source_code]
         source_code: SourceReference,
     },
+    #[error("Cannot use `super` outside of a class")]
+    SuperOutsideOfClass {
+        #[label("Found here")]
+        found_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
+    },
+    #[error("Cannot use `super` in a class with no superclass")]
+    SuperOutsideOfSubClass {
+        #[label("Found here")]
+        found_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
+    },
     #[error("Cannot return a value from an initializer")]
     ReturnValueFromInit {
         #[label("Value found here")]
@@ -99,6 +123,7 @@ pub struct Resolver<'a> {
     source_reference: SourceReference,
     resolutions: &'a mut Resolutions,
     current_function: Option<FunctionType>,
+    current_class: Option<ClassType>,
 }
 
 impl Resolver<'_> {
@@ -112,6 +137,7 @@ impl Resolver<'_> {
             source_reference: program.source_reference.clone(),
             resolutions,
             current_function: None,
+            current_class: None,
         };
         resolver.resolve_program(program);
         if resolver.errors.is_empty() {
@@ -151,6 +177,8 @@ impl Resolver<'_> {
                 self.declare(&decl.name);
                 self.define(&decl.name);
 
+                let enclosing_class = self.current_class;
+
                 if let Some(super_class) = &decl.super_class {
                     if super_class.name == decl.name.name {
                         self.errors.push(ResolverError::ClassInheritFromSelf {
@@ -162,22 +190,35 @@ impl Resolver<'_> {
                             source_code: self.source_reference.clone(),
                         });
                     }
-                    self.resolve_variable(super_class)
+                    self.resolve_variable(super_class);
+
+                    self.begin_scope(ScopeType::Class);
+                    self.set_declared_and_defined(super_class.source_span(), SUPER);
+                    self.current_class = Some(ClassType::SubClass);
+                } else {
+                    self.current_class = Some(ClassType::Class);
                 }
 
                 self.begin_scope(ScopeType::Class);
-                self.scopes.last_mut().unwrap().has_this = true;
+
+                self.set_declared_and_defined(decl.name.source_span(), THIS);
                 for method in &decl.methods {
                     self.resolve_fun(
                         method,
-                        if method.name.name == "init" {
+                        if method.name.name == INIT {
                             FunctionType::Initializer
                         } else {
                             FunctionType::Method
                         },
                     );
                 }
+
+                self.current_class = enclosing_class;
                 self.end_scope();
+
+                if decl.super_class.is_some() {
+                    self.end_scope()
+                }
             }
         }
     }
@@ -271,12 +312,28 @@ impl Resolver<'_> {
                 self.resolve_expr(&expr.object);
             }
             Expr::This(expr) => {
-                if !self.scopes.iter().rev().any(|scope| scope.has_this) {
+                if self.current_class.is_none() {
                     self.errors.push(ResolverError::ThisOutsideOfClass {
                         found_at: expr.source_span(),
                         source_code: self.source_reference.clone(),
                     })
                 }
+            }
+            Expr::Super(expr) => {
+                match self.current_class {
+                    Some(ClassType::Class) => {
+                        self.errors.push(ResolverError::SuperOutsideOfSubClass {
+                            found_at: expr.source_span(),
+                            source_code: self.source_reference.clone(),
+                        })
+                    }
+                    Some(ClassType::SubClass) => (),
+                    None => self.errors.push(ResolverError::SuperOutsideOfClass {
+                        found_at: expr.source_span(),
+                        source_code: self.source_reference.clone(),
+                    }),
+                }
+                self.resolve_local(&expr.keyword)
             }
         }
     }
@@ -308,7 +365,6 @@ impl Resolver<'_> {
         self.scopes.push(Scope {
             scope_type,
             entries: HashMap::new(),
-            has_this: false,
         });
     }
     fn end_scope(&mut self) {
@@ -343,6 +399,18 @@ impl Resolver<'_> {
                 .get_mut(&identifier.name)
                 .unwrap()
                 .status = ScopeEntryStatus::Defined;
+        }
+    }
+    fn set_declared_and_defined(&mut self, declared_at: SourceSpan, name: &str) {
+        if let Some(current_scope) = self.scopes.last_mut() {
+            assert!(!current_scope.entries.contains_key(name));
+            current_scope.entries.insert(
+                name.to_string(),
+                ScopeEntry {
+                    declared_at,
+                    status: ScopeEntryStatus::Defined,
+                },
+            );
         }
     }
     fn get_entry(&self, name: &str) -> Option<ScopeEntry> {

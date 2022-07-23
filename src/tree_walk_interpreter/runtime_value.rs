@@ -85,6 +85,26 @@ impl From<&ast::LiteralValue> for RuntimeValue {
         }
     }
 }
+impl From<LoxClass> for RuntimeValue {
+    fn from(value: LoxClass) -> Self {
+        Self::Class(value)
+    }
+}
+impl From<LoxFunction> for RuntimeValue {
+    fn from(value: LoxFunction) -> Self {
+        Self::Function(value)
+    }
+}
+impl From<LoxNativeFunction> for RuntimeValue {
+    fn from(value: LoxNativeFunction) -> Self {
+        Self::NativeFunction(value)
+    }
+}
+impl From<LoxObject> for RuntimeValue {
+    fn from(value: LoxObject) -> Self {
+        Self::Object(value)
+    }
+}
 
 impl RuntimeValue {
     pub fn nil() -> Self {
@@ -134,6 +154,48 @@ impl RuntimeValue {
         match self {
             RuntimeValue::String(string) => Ok(string.as_str()),
             other => Err(make_error(ValueType::String.into(), other.type_of())),
+        }
+    }
+    pub fn into_string(self) -> Option<Rc<String>> {
+        match self {
+            RuntimeValue::String(string) => Some(string.clone()),
+            _ => None,
+        }
+    }
+    pub fn into_number(self) -> Option<f64> {
+        match self {
+            RuntimeValue::Number(value) => Some(value),
+            _ => None,
+        }
+    }
+    pub fn into_boolean(self) -> Option<bool> {
+        match self {
+            RuntimeValue::Boolean(value) => Some(value),
+            _ => None,
+        }
+    }
+    pub fn into_native_function(self) -> Option<LoxNativeFunction> {
+        match self {
+            RuntimeValue::NativeFunction(value) => Some(value),
+            _ => None,
+        }
+    }
+    pub fn into_function(self) -> Option<LoxFunction> {
+        match self {
+            RuntimeValue::Function(value) => Some(value),
+            _ => None,
+        }
+    }
+    pub fn into_class(self) -> Option<LoxClass> {
+        match self {
+            RuntimeValue::Class(value) => Some(value),
+            _ => None,
+        }
+    }
+    pub fn into_object(self) -> Option<LoxObject> {
+        match self {
+            RuntimeValue::Object(value) => Some(value),
+            _ => None,
         }
     }
 }

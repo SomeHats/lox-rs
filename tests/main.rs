@@ -17,8 +17,7 @@ use miette::{miette, IntoDiagnostic, Result};
 use regex::Regex;
 
 lazy_static! {
-    static ref IGNORE_PATTERN: Regex =
-        Regex::new("test_fixtures/((benchmark|limit|regression)/|().lox$)").unwrap();
+    static ref IGNORE_PATTERN: Regex = Regex::new("test_fixtures/(benchmark|limit)").unwrap();
 }
 
 fn main() {

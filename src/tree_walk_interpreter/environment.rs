@@ -33,7 +33,12 @@ impl Environment {
     fn is_local(&self) -> bool {
         !self.is_global()
     }
-    pub fn define_local(&mut self, name: &str, value: RuntimeValue) -> Result<RuntimeValue, ()> {
+    pub fn define_local(
+        &mut self,
+        name: &str,
+        value: impl Into<RuntimeValue>,
+    ) -> Result<RuntimeValue, ()> {
+        let value = value.into();
         if self.values.contains_key(name) && self.is_local() {
             Err(())
         } else {
@@ -44,7 +49,12 @@ impl Environment {
     pub fn get_local(&self, name: &str) -> Result<RuntimeValue, ()> {
         self.values.get(name).cloned().ok_or(())
     }
-    pub fn assign_local(&mut self, name: &str, value: RuntimeValue) -> Result<RuntimeValue, ()> {
+    pub fn assign_local(
+        &mut self,
+        name: &str,
+        value: impl Into<RuntimeValue>,
+    ) -> Result<RuntimeValue, ()> {
+        let value = value.into();
         if let Some(target) = self.values.get_mut(name) {
             *target = value.clone();
             Ok(value)

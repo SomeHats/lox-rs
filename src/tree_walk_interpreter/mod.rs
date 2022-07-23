@@ -93,12 +93,12 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                 .borrow_mut()
                 .define_local(
                     &decl.fun.name.name,
-                    RuntimeValue::Function(lox_function::LoxFunction::new(
+                    lox_function::LoxFunction::new(
                         decl.fun.clone(),
                         self.environment.clone(),
                         ctx.clone(),
                         false,
-                    )),
+                    ),
                 )
                 .map_err(|_| RuntimeError::AlreadyDefinedVariable {
                     name: decl.fun.name.name.clone(),
@@ -111,7 +111,7 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
             Decl::Class(decl) => {
                 let super_class = if let Some(super_class_id) = &decl.super_class {
                     let super_class = self.eval_variable(super_class_id, ctx)?;
-                    if let RuntimeValue::Class(super_class) = super_class {
+                    if let Some(super_class) = super_class.clone().into_class() {
                         Some(super_class)
                     } else {
                         return Err(RuntimeError::NonClassExtend {
@@ -130,13 +130,13 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                     .borrow_mut()
                     .define_local(
                         &decl.name.name,
-                        RuntimeValue::Class(lox_class::LoxClass::new(
+                        lox_class::LoxClass::new(
                             &decl.name.name,
                             super_class,
                             self.environment.clone(),
                             decl.methods.clone(),
                             ctx.clone(),
-                        )),
+                        ),
                     )
                     .map_err(|_| RuntimeError::AlreadyDefinedVariable {
                         name: decl.name.name.clone(),
@@ -386,16 +386,13 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                     .expect("this should be defined according to resolver"))
             }),
             Expr::Super(super_expr) => {
-                let super_class = self.lookup_identifier_mut(&super_expr.keyword, |environment| {
-                    environment
-                        .get_local(SUPER)
-                        .expect("super must be defined according to resolver")
-                });
-
-                let super_class = match super_class {
-                    RuntimeValue::Class(class) => class,
-                    _ => panic!("Super is {} not a class", super_class.type_of()),
-                };
+                let super_class = self
+                    .lookup_identifier_mut(&super_expr.keyword, |environment| {
+                        environment.get_local(SUPER)
+                    })
+                    .expect("super must be defined according to resolver")
+                    .into_class()
+                    .expect("super class must be class");
 
                 let object_distance = self.resolutions.get(&super_expr.keyword).unwrap() - 1;
                 let object = self
@@ -404,12 +401,9 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                     .ancestor(object_distance, |environment| {
                         environment.get_local(THIS).unwrap()
                     })
-                    .unwrap();
-
-                let object = match object {
-                    RuntimeValue::Object(object) => object,
-                    _ => panic!("This is {} not an object", object.type_of()),
-                };
+                    .expect("this must be present according to resolver")
+                    .into_object()
+                    .expect("this must be object");
 
                 let method = super_class
                     .lookup_method(&super_expr.method.name)
@@ -420,7 +414,7 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
                     })?
                     .bind(object);
 
-                Ok(RuntimeValue::Function(method))
+                Ok(method.into())
             }
         }
     }
@@ -505,12 +499,12 @@ impl<'out, Stdout: Write> Interpreter<'out, Stdout> {
             .borrow_mut()
             .define_local(
                 name,
-                RuntimeValue::NativeFunction(lox_native_function::LoxNativeFunction::new(
+                lox_native_function::LoxNativeFunction::new(
                     id,
                     name.to_string(),
                     arity,
                     implementation,
-                )),
+                ),
             )
             .unwrap();
     }
@@ -538,12 +532,11 @@ mod lox_native_fns {
     type Out = Result<RuntimeValue, RuntimeError>;
 
     pub fn clock(_: &In) -> Out {
-        Ok(RuntimeValue::number(
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_secs_f64(),
-        ))
+        Ok(SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64()
+            .into())
     }
     pub fn type_of(args: &In) -> Out {
         Ok(args.get(0).unwrap().type_of().to_string().into())

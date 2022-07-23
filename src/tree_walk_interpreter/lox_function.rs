@@ -35,8 +35,7 @@ impl LoxFunction {
     }
     pub fn bind(&self, object: LoxObject) -> LoxFunction {
         let mut env = Environment::new_with_parent(self.0.closure.clone());
-        env.define_local(THIS, RuntimeValue::Object(object))
-            .unwrap();
+        env.define_local(THIS, object).unwrap();
         LoxFunction::new(
             self.0.fun.clone(),
             env.wrap(),

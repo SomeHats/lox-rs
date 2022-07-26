@@ -10,6 +10,7 @@ mod side_table;
 mod source;
 mod source_reference;
 mod tree_walk_interpreter;
+pub mod vm_interpreter;
 
 pub use parser::{Parser, ParserError, ParserOpts};
 pub use resolver::ResolverError;

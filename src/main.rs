@@ -4,18 +4,23 @@ use miette::{Diagnostic, IntoDiagnostic, Report, Result};
 use rustyline::error::ReadlineError;
 
 use lox_rs::{
-    ast::PrettyPrint, Interpreter, Parser, ParserOpts, PreparedProgram, Scanner, SourceReference,
+    ast::PrettyPrint, vm_interpreter, Interpreter, Parser, ParserOpts, PreparedProgram, Scanner,
+    SourceReference,
 };
 
 fn main() -> Result<()> {
-    let args: Vec<_> = std::env::args().collect();
-    match args.as_slice() {
-        [_] => run_prompt(),
-        [_, script] => run_file(script.clone()),
-        _ => {
-            println!("Usage: lox-rs [script]");
-            std::process::exit(64);
+    if true {
+        let args: Vec<_> = std::env::args().collect();
+        match args.as_slice() {
+            [_] => run_prompt(),
+            [_, script] => run_file(script.clone()),
+            _ => {
+                println!("Usage: lox-rs [script]");
+                std::process::exit(64);
+            }
         }
+    } else {
+        vm_interpreter::main()
     }
 }
 

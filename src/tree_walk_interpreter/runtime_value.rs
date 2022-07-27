@@ -158,7 +158,7 @@ impl RuntimeValue {
     }
     pub fn into_string(self) -> Option<Rc<String>> {
         match self {
-            RuntimeValue::String(string) => Some(string.clone()),
+            RuntimeValue::String(string) => Some(string),
             _ => None,
         }
     }

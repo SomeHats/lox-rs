@@ -1,9 +1,9 @@
 use super::chunk::{Chunk, OpCode, OpDebug};
-use crate::{ast::*, SourceReference};
+use crate::ast::*;
 
 pub struct Compiler {
     chunk: Chunk,
-    source_reference: SourceReference,
+    // source_reference: SourceReference,
 }
 impl Compiler {
     pub fn compile(
@@ -13,8 +13,8 @@ impl Compiler {
         }: Program,
     ) -> Chunk {
         let mut compiler = Self {
-            chunk: Chunk::new(vec![], Some(source_reference.clone())),
-            source_reference: source_reference.clone(),
+            chunk: Chunk::new(vec![], Some(source_reference)),
+            // source_reference: source_reference,
         };
 
         for decl_or_stmt in &statements {
@@ -29,7 +29,7 @@ impl Compiler {
             DeclOrStmt::Stmt(stmt) => self.compile_stmt(stmt),
         }
     }
-    fn compile_decl(&mut self, decl: &Decl) {
+    fn compile_decl(&mut self, _decl: &Decl) {
         unimplemented!();
     }
     fn compile_stmt(&mut self, stmt: &Stmt) {
@@ -47,8 +47,9 @@ impl Compiler {
         );
     }
     fn compile_expr_stmt(&mut self, stmt: &ExprStmt) {
-        // todo: what to do with extra values left on the stack?
         self.compile_expr(&stmt.expression);
+        self.chunk
+            .write_basic_op(OpCode::Pop, OpDebug::single(stmt.source_span()));
     }
     fn compile_expr(&mut self, expr: &Expr) {
         match expr {

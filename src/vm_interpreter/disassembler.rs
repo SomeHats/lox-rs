@@ -28,14 +28,15 @@ impl Chunk {
                     Colorize::clear(get_formatted_line(source.str(), op_debug).as_str())
                 });
 
-        let basic_info = match op_code {
+        match op_code {
             OpCode::Return
             | OpCode::Negate
             | OpCode::Add
             | OpCode::Subtract
             | OpCode::Multiply
             | OpCode::Divide
-            | OpCode::Print => {
+            | OpCode::Print
+            | OpCode::Pop => {
                 print_line([
                     (Some(format!("{:>4}", initial_offset).dimmed()), 4),
                     (Some(" | ".into()), 3),
@@ -80,9 +81,15 @@ impl Chunk {
 fn print_line<const N: usize>(parts: [(Option<ColoredString>, usize); N]) {
     let mut out = String::new();
     for (part, width) in parts {
-        write!(out, "{:<width$}", part.unwrap_or("".into()), width = width).unwrap();
+        write!(
+            out,
+            "{:<width$}",
+            part.unwrap_or_else(|| "".into()),
+            width = width
+        )
+        .unwrap();
     }
-    print!("{}\n", out.on_black());
+    println!("{}", out.on_black());
 }
 
 fn get_formatted_line(source: &str, op_debug: OpDebug) -> String {

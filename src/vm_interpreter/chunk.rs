@@ -27,6 +27,7 @@ pub enum OpCode {
     Multiply,
     Divide,
     Print,
+    Pop,
 }
 
 #[derive(Debug, Clone)]
@@ -67,7 +68,7 @@ impl Chunk {
     pub fn get_constant_value(&self, address: ConstantAddress) -> Result<&Value, CodeReadError> {
         self.constants
             .get(address.0 as usize)
-            .ok_or_else(|| CodeReadError::InvalidConstantAddress(address))
+            .ok_or(CodeReadError::InvalidConstantAddress(address))
     }
     pub fn register_constant(&mut self, constant: impl Into<Value>) -> ConstantAddress {
         self.constants.push(constant.into());

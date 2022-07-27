@@ -1,10 +1,10 @@
-use crate::{SourceReference, SourceSpan};
-
 use super::{
     chunk::{Chunk, CodeReadError, OpCode},
     value::{Value, ValueDescriptor, ValueType},
 };
+use crate::{SourceReference, SourceSpan};
 use miette::Diagnostic;
+use std::mem::replace;
 use thiserror::Error;
 
 #[derive(Debug, Error, Diagnostic)]
@@ -32,15 +32,22 @@ pub struct Vm {
     ip: usize,
     stack: Vec<(usize, Value)>,
     ip_at_op_start: usize,
+    last_popped: Value,
 }
-impl Vm {
-    pub fn new() -> Self {
+impl Default for Vm {
+    fn default() -> Self {
         Self {
             current_chunk: None,
             ip: 0,
-            ip_at_op_start: 0,
             stack: vec![],
+            ip_at_op_start: 0,
+            last_popped: Value::Nil,
         }
+    }
+}
+impl Vm {
+    pub fn new() -> Self {
+        Self::default()
     }
     pub fn run(&mut self, chunk: Chunk) -> Result<Value, InterpreterError> {
         self.current_chunk = Some(chunk);
@@ -100,6 +107,9 @@ impl Vm {
                     let value = self.stack_pop()?;
                     println!("{:?}", value);
                 }
+                OpCode::Pop => {
+                    self.stack_pop()?;
+                }
             };
 
             if cfg!(debug_assertions) {
@@ -107,19 +117,20 @@ impl Vm {
             }
         }
 
-        if self.stack.len() == 0 {
-            Ok(0.0.into())
-        } else if self.stack.len() == 1 {
-            Ok(self.stack.pop().unwrap().1)
+        if self.stack.is_empty() {
+            let last_popped = replace(&mut self.last_popped, Value::Nil);
+            Ok(last_popped)
         } else {
-            panic!("too many values left on stack!");
+            panic!("too many values left on stack")
         }
     }
     fn stack_push(&mut self, value: impl Into<Value>) {
         self.stack.push((self.ip_at_op_start, value.into()));
     }
     fn stack_pop(&mut self) -> Result<(usize, Value), InterpreterError> {
-        self.stack.pop().ok_or(InterpreterError::StackUnderflow)
+        let (addr, value) = self.stack.pop().ok_or(InterpreterError::StackUnderflow)?;
+        self.last_popped = value.clone();
+        Ok((addr, value))
     }
     fn next<'a, T: 'a, F: FnOnce(&'a Chunk, usize) -> Result<(usize, T), CodeReadError>>(
         &'a mut self,
@@ -128,8 +139,5 @@ impl Vm {
         let (next_ip, value) = read(self.current_chunk.as_ref().unwrap(), self.ip)?;
         self.ip = next_ip;
         Ok(value)
-    }
-    fn current_chunk(&self) -> &Chunk {
-        self.current_chunk.as_ref().unwrap()
     }
 }

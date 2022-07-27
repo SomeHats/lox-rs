@@ -1,7 +1,4 @@
-use std::{
-    io::{stdout, Write},
-    os::unix::process,
-};
+use std::io::{stdout, Write};
 
 use miette::{Diagnostic, IntoDiagnostic, Report, Result};
 use rustyline::error::ReadlineError;
@@ -14,7 +11,7 @@ use lox_rs::{
 
 fn main() -> Result<()> {
     let mut args: Vec<_> = std::env::args().skip(1).collect();
-    let use_old = consume_arg(&mut args, |arg| (arg == "--old").then(|| true)).unwrap_or(false);
+    let use_old = consume_arg(&mut args, |arg| (arg == "--old").then_some(true)).unwrap_or(false);
     let file = consume_arg(&mut args, |arg| {
         if arg.starts_with("--") {
             None
@@ -22,7 +19,7 @@ fn main() -> Result<()> {
             Some(arg.to_string())
         }
     });
-    if args.len() > 0 {
+    if !args.is_empty() {
         eprintln!("Unrecognized arguments: {:?}", args);
         eprintln!("Usage: lox-rs [--old] [file]");
         std::process::exit(1);
@@ -163,10 +160,8 @@ fn run_prompt(use_old: bool) -> Result<()> {
         repl_loop(|file_name, source| {
             let (program, did_have_error) =
                 parse_and_report_errors(&file_name, &source, ParserOpts::default().for_repl());
-            match prepare_interpreter(&mut interpreter, program, did_have_error) {
-                None => None,
-                Some(program) => Some(interpreter.interpret(&program)),
-            }
+            prepare_interpreter(&mut interpreter, program, did_have_error)
+                .map(|program| interpreter.interpret(&program))
         })
     } else {
         let mut vm = Vm::new();

@@ -1,4 +1,4 @@
-use super::chunk::{Chunk, OpCode};
+use super::chunk::{Chunk, OpCode, OpDebug};
 use crate::{ast::*, SourceReference};
 
 pub struct Compiler {
@@ -41,8 +41,10 @@ impl Compiler {
     }
     fn compile_print_stmt(&mut self, stmt: &PrintStmt) {
         self.compile_expr(&stmt.expression);
-        self.chunk
-            .write_basic_op(OpCode::Print, Some(stmt.print_span));
+        self.chunk.write_basic_op(
+            OpCode::Print,
+            OpDebug::new(stmt.print_span, stmt.source_span()),
+        );
     }
     fn compile_expr_stmt(&mut self, stmt: &ExprStmt) {
         // todo: what to do with extra values left on the stack?
@@ -59,9 +61,9 @@ impl Compiler {
     }
     fn compile_literal_expr(&mut self, expr: &LiteralExpr) {
         match expr.value {
-            LiteralValue::Number(value) => {
-                self.chunk.write_constant(value, Some(expr.source_span()))
-            }
+            LiteralValue::Number(value) => self
+                .chunk
+                .write_constant(value, OpDebug::single(expr.source_span())),
             _ => unimplemented!("{:?}", expr),
         }
     }
@@ -71,8 +73,10 @@ impl Compiler {
             UnaryOperator::Minus => OpCode::Negate,
             _ => unimplemented!("{:?}", expr),
         };
-        self.chunk
-            .write_basic_op(op_code, Some(expr.operator.source_span()))
+        self.chunk.write_basic_op(
+            op_code,
+            OpDebug::new(expr.operator.source_span(), expr.source_span()),
+        );
     }
     fn compile_binary_expr(&mut self, expr: &BinaryExpr) {
         self.compile_expr(&expr.left);
@@ -84,7 +88,9 @@ impl Compiler {
             BinaryOperator::Divide => OpCode::Divide,
             _ => unimplemented!("{:?}", expr),
         };
-        self.chunk
-            .write_basic_op(op_code, Some(expr.operator.source_span()))
+        self.chunk.write_basic_op(
+            op_code,
+            OpDebug::new(expr.operator.source_span(), expr.source_span()),
+        );
     }
 }

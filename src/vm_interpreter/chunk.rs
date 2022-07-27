@@ -29,6 +29,20 @@ pub enum OpCode {
     Print,
 }
 
+#[derive(Debug, Clone)]
+pub struct OpDebug {
+    pub inner: SourceSpan,
+    pub outer: SourceSpan,
+}
+impl OpDebug {
+    pub fn new(inner: SourceSpan, outer: SourceSpan) -> Self {
+        Self { inner, outer }
+    }
+    pub fn single(inner: SourceSpan) -> Self {
+        Self::new(inner, inner)
+    }
+}
+
 #[derive(Debug)]
 pub struct Chunk {
     code: Vec<u8>,
@@ -43,7 +57,7 @@ impl Chunk {
             constants: vec![],
             debug_data: debug_source.map(|source| ChunkDebugData {
                 source_code: source,
-                source_spans: vec![],
+                op_debugs: vec![],
             }),
         }
     }
@@ -59,20 +73,24 @@ impl Chunk {
         self.constants.push(constant.into());
         ConstantAddress(self.constants.len() as u8 - 1)
     }
-    fn write_debug_data(&mut self, source_span: Option<SourceSpan>) {
+    fn write_debug_data(&mut self, op_debug: impl Into<Option<OpDebug>>) {
         if let Some(debug_data) = &mut self.debug_data {
-            debug_data.source_spans.push(source_span);
+            debug_data.op_debugs.push(op_debug.into());
         }
     }
-    pub fn write_basic_op(&mut self, op: OpCode, source_span: Option<SourceSpan>) {
+    pub fn write_basic_op(&mut self, op: OpCode, op_debug: impl Into<Option<OpDebug>>) {
         self.code.push(op.into());
-        self.write_debug_data(source_span);
+        self.write_debug_data(op_debug);
     }
-    pub fn write_constant(&mut self, value: impl Into<Value>, source_span: Option<SourceSpan>) {
+    pub fn write_constant(
+        &mut self,
+        value: impl Into<Value>,
+        op_debug: impl Into<Option<OpDebug>>,
+    ) {
         let address = self.register_constant(value);
         self.code.push(OpCode::Constant.into());
         self.code.push(address.0);
-        self.write_debug_data(source_span);
+        self.write_debug_data(op_debug);
         self.write_debug_data(None);
     }
     pub fn read_byte(&self, offset: usize) -> Result<u8, CodeReadError> {
@@ -81,9 +99,9 @@ impl Chunk {
             .cloned()
             .ok_or(CodeReadError::UnexpectedEnd)
     }
-    pub fn read_debug_span(&self, offset: usize) -> Option<(&SourceReference, SourceSpan)> {
+    pub fn read_op_debug(&self, offset: usize) -> Option<(&SourceReference, OpDebug)> {
         let debug_data = self.debug_data.as_ref()?;
-        let source_span = debug_data.source_spans.get(offset)?.clone()?;
+        let source_span = debug_data.op_debugs.get(offset)?.clone()?;
         Some((&debug_data.source_code, source_span))
     }
     pub fn read_op_code(&self, offset: usize) -> Result<(usize, OpCode), CodeReadError> {
@@ -104,12 +122,15 @@ impl Chunk {
         let (offset, address) = self.read_constant_address(offset)?;
         Ok((offset, self.get_constant_value(address)?))
     }
+    pub fn has_debug_data(&self) -> bool {
+        self.debug_data.is_some()
+    }
 }
 
 #[derive(Debug)]
 pub struct ChunkDebugData {
     pub source_code: SourceReference,
-    pub source_spans: Vec<Option<SourceSpan>>,
+    pub op_debugs: Vec<Option<OpDebug>>,
 }
 
 #[derive(Debug, Error, Diagnostic)]

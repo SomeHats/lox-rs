@@ -1,6 +1,8 @@
+use crate::{SourceReference, SourceSpan};
+
 use super::{
     chunk::{Chunk, CodeReadError, OpCode},
-    value::Value,
+    value::{Value, ValueDescriptor, ValueType},
 };
 use miette::Diagnostic;
 use thiserror::Error;
@@ -11,18 +13,32 @@ pub enum InterpreterError {
     CodeReadError(#[from] CodeReadError),
     #[error("Stack underflow")]
     StackUnderflow,
+    #[error("Operand must be {}, but found {}", .expected_type.fmt_a(), .actual_type.fmt_a())]
+    OperandTypeError {
+        expected_type: ValueDescriptor,
+        actual_type: ValueType,
+        #[label("{} was found here", .actual_type.fmt_a())]
+        operand_loc: SourceSpan,
+        operator: String,
+        #[label("the '{operator}' operator expected {}", .expected_type.fmt_a())]
+        operator_loc: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
+    },
 }
 
 pub struct Vm {
     current_chunk: Option<Chunk>,
     ip: usize,
-    stack: Vec<Value>,
+    stack: Vec<(usize, Value)>,
+    ip_at_op_start: usize,
 }
 impl Vm {
     pub fn new() -> Self {
         Self {
             current_chunk: None,
             ip: 0,
+            ip_at_op_start: 0,
             stack: vec![],
         }
     }
@@ -38,11 +54,12 @@ impl Vm {
                     .disassemble_instruction_at(self.ip)?;
             }
 
+            self.ip_at_op_start = self.ip;
             let op_code = self.next(Chunk::read_op_code)?;
 
             match op_code {
                 OpCode::Return => {
-                    let value = self.stack_pop()?;
+                    let value = self.stack_pop()?.1;
                     println!("return: {:?}", value);
 
                     return Ok(value);
@@ -52,32 +69,32 @@ impl Vm {
                     self.stack_push(constant.clone());
                 }
                 OpCode::Negate => {
-                    let value = -self.stack_pop()?.cast_float();
-                    self.stack_push(value.into());
+                    let value = -self.stack_pop()?.1.cast_float();
+                    self.stack_push(value);
                 }
                 OpCode::Add => {
-                    let b = self.stack_pop()?.cast_float();
-                    let a = self.stack_pop()?.cast_float();
+                    let b = self.stack_pop()?.1.cast_float();
+                    let a = self.stack_pop()?.1.cast_float();
                     let value = a + b;
-                    self.stack_push(value.into());
+                    self.stack_push(value);
                 }
                 OpCode::Subtract => {
-                    let b = self.stack_pop()?.cast_float();
-                    let a = self.stack_pop()?.cast_float();
+                    let b = self.stack_pop()?.1.cast_float();
+                    let a = self.stack_pop()?.1.cast_float();
                     let value = a - b;
-                    self.stack_push(value.into());
+                    self.stack_push(value);
                 }
                 OpCode::Multiply => {
-                    let b = self.stack_pop()?.cast_float();
-                    let a = self.stack_pop()?.cast_float();
+                    let b = self.stack_pop()?.1.cast_float();
+                    let a = self.stack_pop()?.1.cast_float();
                     let value = a * b;
-                    self.stack_push(value.into());
+                    self.stack_push(value);
                 }
                 OpCode::Divide => {
-                    let b = self.stack_pop()?.cast_float();
-                    let a = self.stack_pop()?.cast_float();
+                    let b = self.stack_pop()?.1.cast_float();
+                    let a = self.stack_pop()?.1.cast_float();
                     let value = a / b;
-                    self.stack_push(value.into());
+                    self.stack_push(value);
                 }
                 OpCode::Print => {
                     let value = self.stack_pop()?;
@@ -85,23 +102,23 @@ impl Vm {
                 }
             };
 
-            // if cfg!(debug_assertions) {
-            //     println!("     | stack: {:?}", self.stack);
-            // }
+            if cfg!(debug_assertions) {
+                println!("     | stack: {:?}", self.stack);
+            }
         }
 
         if self.stack.len() == 0 {
             Ok(0.0.into())
         } else if self.stack.len() == 1 {
-            Ok(self.stack.pop().unwrap())
+            Ok(self.stack.pop().unwrap().1)
         } else {
             panic!("too many values left on stack!");
         }
     }
-    fn stack_push(&mut self, value: Value) {
-        self.stack.push(value);
+    fn stack_push(&mut self, value: impl Into<Value>) {
+        self.stack.push((self.ip_at_op_start, value.into()));
     }
-    fn stack_pop(&mut self) -> Result<Value, InterpreterError> {
+    fn stack_pop(&mut self) -> Result<(usize, Value), InterpreterError> {
         self.stack.pop().ok_or(InterpreterError::StackUnderflow)
     }
     fn next<'a, T: 'a, F: FnOnce(&'a Chunk, usize) -> Result<(usize, T), CodeReadError>>(
@@ -111,5 +128,8 @@ impl Vm {
         let (next_ip, value) = read(self.current_chunk.as_ref().unwrap(), self.ip)?;
         self.ip = next_ip;
         Ok(value)
+    }
+    fn current_chunk(&self) -> &Chunk {
+        self.current_chunk.as_ref().unwrap()
     }
 }

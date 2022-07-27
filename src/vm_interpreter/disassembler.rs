@@ -1,5 +1,4 @@
-use super::chunk::{Chunk, CodeReadError, OpCode};
-use crate::SourceSpan;
+use super::chunk::{Chunk, CodeReadError, OpCode, OpDebug};
 use colored::{ColoredString, Colorize};
 use std::fmt::Write;
 
@@ -23,9 +22,11 @@ impl Chunk {
         initial_offset: usize,
     ) -> Result<usize, CodeReadError> {
         let (mut offset, op_code) = self.read_op_code(initial_offset)?;
-        let source_info: Option<ColoredString> = self
-            .read_debug_span(initial_offset)
-            .map(|(source, span)| Colorize::clear(get_formatted_line(source.str(), span).as_str()));
+        let source_info: Option<ColoredString> =
+            self.read_op_debug(initial_offset)
+                .map(|(source, op_debug)| {
+                    Colorize::clear(get_formatted_line(source.str(), op_debug).as_str())
+                });
 
         let basic_info = match op_code {
             OpCode::Return
@@ -36,7 +37,7 @@ impl Chunk {
             | OpCode::Divide
             | OpCode::Print => {
                 print_line([
-                    (Some(format!("{:>4}", offset).dimmed()), 4),
+                    (Some(format!("{:>4}", initial_offset).dimmed()), 4),
                     (Some(" | ".into()), 3),
                     (Some(format!("{:?}", op_code).purple()), 50),
                     (source_info, 0),
@@ -51,7 +52,7 @@ impl Chunk {
                 let (next_offset, address) = self.read_constant_address(offset)?;
                 offset = next_offset;
                 print_line([
-                    (Some(format!("{:>4}", offset).dimmed()), 4),
+                    (Some(format!("{:>4}", initial_offset).dimmed()), 4),
                     (Some(" | ".into()), 3),
                     (Some(format!("{:?}", op_code).purple()), 10),
                     (Some(format!(" {:>4}", address).green()), 5),
@@ -84,13 +85,15 @@ fn print_line<const N: usize>(parts: [(Option<ColoredString>, usize); N]) {
     print!("{}\n", out.on_black());
 }
 
-fn get_formatted_line(source: &str, span: SourceSpan) -> String {
+fn get_formatted_line(source: &str, op_debug: OpDebug) -> String {
     let mut line_start_idx = 0;
     let mut line = 1;
     let mut line_end_idx = 0;
 
-    let start_offset = span.start().byte_offset();
-    let end_offset = span.end().byte_offset().max(start_offset);
+    let inner_start_offset = op_debug.inner.start().byte_offset();
+    let inner_end_offset = op_debug.inner.end().byte_offset();
+    let outer_start_offset = op_debug.outer.start().byte_offset();
+    let outer_end_offset = op_debug.outer.end().byte_offset();
 
     enum Stage {
         Before,
@@ -106,7 +109,7 @@ fn get_formatted_line(source: &str, span: SourceSpan) -> String {
                     line_start_idx = idx;
                     line += 1;
                 }
-                if idx == start_offset {
+                if idx == inner_start_offset {
                     stage = Stage::Within;
                 }
             }
@@ -115,7 +118,7 @@ fn get_formatted_line(source: &str, span: SourceSpan) -> String {
                     line_end_idx = idx;
                     break;
                 }
-                if idx >= end_offset {
+                if idx >= inner_end_offset {
                     stage = Stage::After;
                 }
             }
@@ -131,10 +134,33 @@ fn get_formatted_line(source: &str, span: SourceSpan) -> String {
     format!(
         "{} {}{}{}",
         format!("{:>3}:", line).dimmed(),
-        &source[line_start_idx..start_offset]
-            .trim_start_matches('\n')
-            .dimmed(),
-        &source[start_offset..end_offset].magenta().bold(),
-        &source[end_offset..line_end_idx].dimmed(),
+        if outer_start_offset <= line_start_idx {
+            source[line_start_idx..inner_start_offset]
+                .trim_start_matches('\n')
+                .blue()
+                .to_string()
+        } else {
+            format!(
+                "{}{}",
+                &source[line_start_idx..outer_start_offset]
+                    .trim_start_matches('\n')
+                    .dimmed(),
+                &source[outer_start_offset..inner_start_offset]
+                    .blue()
+                    .to_string(),
+            )
+        },
+        &source[inner_start_offset..inner_end_offset].green().bold(),
+        if outer_end_offset >= line_end_idx {
+            source[inner_end_offset..line_end_idx].blue().to_string()
+        } else {
+            format!(
+                "{}{}",
+                &source[inner_end_offset..outer_end_offset]
+                    .blue()
+                    .to_string(),
+                &source[outer_end_offset..line_end_idx].dimmed().to_string(),
+            )
+        },
     )
 }

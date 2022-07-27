@@ -26,6 +26,7 @@ pub enum OpCode {
     Subtract,
     Multiply,
     Divide,
+    Print,
 }
 
 #[derive(Debug)]
@@ -72,12 +73,18 @@ impl Chunk {
         self.code.push(OpCode::Constant.into());
         self.code.push(address.0);
         self.write_debug_data(source_span);
+        self.write_debug_data(None);
     }
     pub fn read_byte(&self, offset: usize) -> Result<u8, CodeReadError> {
         self.code
             .get(offset)
             .cloned()
             .ok_or(CodeReadError::UnexpectedEnd)
+    }
+    pub fn read_debug_span(&self, offset: usize) -> Option<(&SourceReference, SourceSpan)> {
+        let debug_data = self.debug_data.as_ref()?;
+        let source_span = debug_data.source_spans.get(offset)?.clone()?;
+        Some((&debug_data.source_code, source_span))
     }
     pub fn read_op_code(&self, offset: usize) -> Result<(usize, OpCode), CodeReadError> {
         let op_code = self.read_byte(offset)?;

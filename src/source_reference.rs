@@ -22,6 +22,9 @@ impl SourceReference {
     fn inner(&self) -> &SourceReferenceInner {
         self.0.as_ref()
     }
+    pub fn str(&self) -> &str {
+        &self.inner().source
+    }
 }
 
 impl SourceCode for SourceReference {

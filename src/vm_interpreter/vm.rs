@@ -14,22 +14,28 @@ pub enum InterpreterError {
 }
 
 pub struct Vm {
-    chunk: Chunk,
+    current_chunk: Option<Chunk>,
     ip: usize,
     stack: Vec<Value>,
 }
 impl Vm {
-    pub fn new(chunk: Chunk) -> Self {
+    pub fn new() -> Self {
         Self {
-            chunk,
+            current_chunk: None,
             ip: 0,
             stack: vec![],
         }
     }
-    pub fn run(&mut self) -> Result<(), InterpreterError> {
-        loop {
+    pub fn run(&mut self, chunk: Chunk) -> Result<Value, InterpreterError> {
+        self.current_chunk = Some(chunk);
+        self.ip = 0;
+
+        while self.ip < self.current_chunk.as_ref().unwrap().code().len() {
             if cfg!(debug_assertions) {
-                self.chunk.disassemble_instruction_at(self.ip)?;
+                self.current_chunk
+                    .as_ref()
+                    .unwrap()
+                    .disassemble_instruction_at(self.ip)?;
             }
 
             let op_code = self.next(Chunk::read_op_code)?;
@@ -39,7 +45,7 @@ impl Vm {
                     let value = self.stack_pop()?;
                     println!("return: {:?}", value);
 
-                    return Ok(());
+                    return Ok(value);
                 }
                 OpCode::Constant => {
                     let constant = self.next(|a, b| a.read_constant_value(b))?.clone();
@@ -73,11 +79,23 @@ impl Vm {
                     let value = a / b;
                     self.stack_push(value.into());
                 }
+                OpCode::Print => {
+                    let value = self.stack_pop()?;
+                    println!("{:?}", value);
+                }
             };
 
-            if cfg!(debug_assertions) {
-                println!("     | stack: {:?}", self.stack);
-            }
+            // if cfg!(debug_assertions) {
+            //     println!("     | stack: {:?}", self.stack);
+            // }
+        }
+
+        if self.stack.len() == 0 {
+            Ok(0.0.into())
+        } else if self.stack.len() == 1 {
+            Ok(self.stack.pop().unwrap())
+        } else {
+            panic!("too many values left on stack!");
         }
     }
     fn stack_push(&mut self, value: Value) {
@@ -90,7 +108,7 @@ impl Vm {
         &'a mut self,
         read: F,
     ) -> Result<T, CodeReadError> {
-        let (next_ip, value) = read(&self.chunk, self.ip)?;
+        let (next_ip, value) = read(self.current_chunk.as_ref().unwrap(), self.ip)?;
         self.ip = next_ip;
         Ok(value)
     }

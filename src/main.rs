@@ -1,26 +1,53 @@
-use std::io::{stdout, Write};
+use std::{
+    io::{stdout, Write},
+    os::unix::process,
+};
 
 use miette::{Diagnostic, IntoDiagnostic, Report, Result};
 use rustyline::error::ReadlineError;
 
 use lox_rs::{
-    ast::PrettyPrint, vm_interpreter, Interpreter, Parser, ParserOpts, PreparedProgram, Scanner,
-    SourceReference,
+    ast::Program,
+    vm_interpreter::{Compiler, Vm},
+    Interpreter, Parser, ParserOpts, PreparedProgram, Scanner, SourceReference,
 };
 
 fn main() -> Result<()> {
-    if true {
-        let args: Vec<_> = std::env::args().collect();
-        match args.as_slice() {
-            [_] => run_prompt(),
-            [_, script] => run_file(script.clone()),
-            _ => {
-                println!("Usage: lox-rs [script]");
-                std::process::exit(64);
-            }
+    let mut args: Vec<_> = std::env::args().skip(1).collect();
+    let use_old = consume_arg(&mut args, |arg| (arg == "--old").then(|| true)).unwrap_or(false);
+    let file = consume_arg(&mut args, |arg| {
+        if arg.starts_with("--") {
+            None
+        } else {
+            Some(arg.to_string())
         }
+    });
+    if args.len() > 0 {
+        eprintln!("Unrecognized arguments: {:?}", args);
+        eprintln!("Usage: lox-rs [--old] [file]");
+        std::process::exit(1);
+    }
+    if let Some(file) = file {
+        run_file(file, use_old)?;
     } else {
-        vm_interpreter::main()
+        run_prompt(use_old)?;
+    }
+
+    Ok(())
+}
+
+fn consume_arg<T, F: Fn(&str) -> Option<T>>(args: &mut Vec<String>, predicate: F) -> Option<T> {
+    let found = args
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, arg)| predicate(arg).map(|val| (idx, val)))
+        .next();
+
+    if let Some((idx, val)) = found {
+        args.remove(idx);
+        Some(val)
+    } else {
+        None
     }
 }
 
@@ -30,12 +57,11 @@ fn report_all_errors<E: Diagnostic + Send + Sync + 'static>(errors: impl IntoIte
     }
 }
 
-fn prepare_and_report_errors<W: Write>(
+fn parse_and_report_errors(
     file_name: &str,
     source: &str,
     parser_opts: ParserOpts,
-    interpreter: &mut Interpreter<W>,
-) -> Option<PreparedProgram> {
+) -> (Program, bool) {
     let source_reference = SourceReference::new(file_name.to_string(), source.to_string());
     let mut did_have_scanner_error = false;
     let token_stream =
@@ -54,11 +80,17 @@ fn prepare_and_report_errors<W: Write>(
     let did_have_parser_error = !parser_errors.is_empty();
     report_all_errors(parser_errors);
 
-    println!("{}", program.pretty_print());
+    (program, did_have_scanner_error || did_have_parser_error)
+}
 
+fn prepare_interpreter<W: Write>(
+    interpreter: &mut Interpreter<W>,
+    program: Program,
+    did_have_error: bool,
+) -> Option<PreparedProgram> {
     match interpreter.prepare(program) {
         Ok(prepared) => {
-            if did_have_scanner_error || did_have_parser_error {
+            if did_have_error {
                 None
             } else {
                 Some(prepared)
@@ -71,54 +103,106 @@ fn prepare_and_report_errors<W: Write>(
     }
 }
 
-fn run_file(file_name: String) -> Result<()> {
+fn run_file(file_name: String, use_old: bool) -> Result<()> {
     let path = std::fs::canonicalize(file_name).into_diagnostic()?;
     let source = std::fs::read_to_string(&path).into_diagnostic()?;
     let mut stdout = stdout();
-    let mut interpreter = Interpreter::new(&mut stdout);
 
-    match prepare_and_report_errors(
-        &path.to_string_lossy(),
-        &source,
-        ParserOpts::default(),
-        &mut interpreter,
-    ) {
-        None => std::process::exit(70),
-        Some(program) => {
-            interpreter.interpret(&program)?;
+    let (program, did_have_error) =
+        parse_and_report_errors(&path.to_string_lossy(), &source, ParserOpts::default());
+
+    if use_old {
+        let mut interpreter = Interpreter::new(&mut stdout);
+        match prepare_interpreter(&mut interpreter, program, did_have_error) {
+            None => std::process::exit(70),
+            Some(program) => {
+                interpreter.interpret(&program)?;
+            }
+        }
+    } else {
+        let mut vm = Vm::new();
+        if did_have_error {
+            std::process::exit(70);
+        } else {
+            let compiled = Compiler::compile(program);
+            vm.run(compiled)?;
         }
     }
 
     Ok(())
 }
 
-fn run_prompt() -> Result<()> {
+fn repl_loop<
+    V: std::fmt::Debug,
+    E: Diagnostic + Send + Sync + 'static,
+    F: FnMut(String, String) -> Option<Result<V, E>>,
+>(
+    mut eval: F,
+) -> Result<()> {
     let mut rl = rustyline::Editor::<()>::new();
-    let mut stdout = stdout();
-    let mut interpreter = Interpreter::new(&mut stdout);
     let mut repl_line: usize = 1;
     loop {
         match rl.readline(&format!("{}> ", repl_line)) {
-            Ok(line) => {
-                match prepare_and_report_errors(
-                    &format!("<repl-{}>", repl_line),
-                    &line,
-                    ParserOpts::default().for_repl(),
-                    &mut interpreter,
-                ) {
-                    None => {}
-                    Some(prepared_program) => match interpreter.interpret(&prepared_program) {
-                        Ok(value) => println!("==> {:?}", value),
-                        Err(err) => {
-                            println!("{:?}", Report::new(err));
-                        }
-                    },
-                }
-            }
+            Ok(line) => match eval(format!("<repl-{}>", repl_line), format!("{}\n", line)) {
+                Some(Ok(val)) => println!("==> {:?}", val),
+                Some(Err(err)) => println!("{:?}", Report::new(err)),
+                None => {}
+            },
             Err(ReadlineError::Interrupted) => return Ok(()),
             Err(ReadlineError::Eof) => return Ok(()),
             Err(err) => return Err(err).into_diagnostic(),
         }
         repl_line += 1;
     }
+}
+
+fn run_prompt(use_old: bool) -> Result<()> {
+    if use_old {
+        let mut stdout = stdout();
+        let mut interpreter = Interpreter::new(&mut stdout);
+        repl_loop(|file_name, source| {
+            let (program, did_have_error) =
+                parse_and_report_errors(&file_name, &source, ParserOpts::default().for_repl());
+            match prepare_interpreter(&mut interpreter, program, did_have_error) {
+                None => None,
+                Some(program) => Some(interpreter.interpret(&program)),
+            }
+        })
+    } else {
+        let mut vm = Vm::new();
+        repl_loop(|file_name, source| {
+            let (program, did_have_error) =
+                parse_and_report_errors(&file_name, &source, ParserOpts::default().for_repl());
+            if did_have_error {
+                None
+            } else {
+                let chunk = Compiler::compile(program);
+                Some(vm.run(chunk))
+            }
+        })
+    }
+    // loop {
+    //     match rl.readline(&format!("{}> ", repl_line)) {
+    //         Ok(line) => {
+    //             match prepare_and_report_errors(
+    //                 &format!("<repl-{}>", repl_line),
+    //                 &line,
+    //                 ParserOpts::default().for_repl(),
+    //                 &mut interpreter,
+    //             ) {
+    //                 None => {}
+    //                 Some(prepared_program) => match interpreter.interpret(&prepared_program) {
+    //                     Ok(value) => println!("==> {:?}", value),
+    //                     Err(err) => {
+    //                         println!("{:?}", Report::new(err));
+    //                     }
+    //                 },
+    //             }
+    //         }
+    //         Err(ReadlineError::Interrupted) => return Ok(()),
+    //         Err(ReadlineError::Eof) => return Ok(()),
+    //         Err(err) => return Err(err).into_diagnostic(),
+    //     }
+    //     repl_line += 1;
+    // }
 }

@@ -1,10 +1,10 @@
 use super::{
-    chunk::{Chunk, CodeReadError, OpCode},
+    chunk::{Chunk, CodeReadError, OpCode, OpDebug},
     value::{Value, ValueDescriptor, ValueType},
 };
 use crate::{SourceReference, SourceSpan};
 use miette::Diagnostic;
-use std::mem::replace;
+use std::{io::Write, mem::replace};
 use thiserror::Error;
 
 #[derive(Debug, Error, Diagnostic)]
@@ -27,38 +27,32 @@ pub enum InterpreterError {
     },
 }
 
-pub struct Vm {
+pub struct Vm<'a, Stdout: Write> {
     current_chunk: Option<Chunk>,
     ip: usize,
     stack: Vec<(usize, Value)>,
     ip_at_op_start: usize,
     last_popped: Value,
+    stdout: &'a mut Stdout,
 }
-impl Default for Vm {
-    fn default() -> Self {
+impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
+    pub fn new(stdout: &'vm mut Stdout) -> Self {
         Self {
             current_chunk: None,
             ip: 0,
             stack: vec![],
             ip_at_op_start: 0,
             last_popped: Value::Nil,
+            stdout,
         }
-    }
-}
-impl Vm {
-    pub fn new() -> Self {
-        Self::default()
     }
     pub fn run(&mut self, chunk: Chunk) -> Result<Value, InterpreterError> {
         self.current_chunk = Some(chunk);
         self.ip = 0;
 
         while self.ip < self.current_chunk.as_ref().unwrap().code().len() {
-            if cfg!(debug_assertions) {
-                self.current_chunk
-                    .as_ref()
-                    .unwrap()
-                    .disassemble_instruction_at(self.ip)?;
+            if cfg!(feature = "debug") {
+                self.current_chunk().disassemble_instruction_at(self.ip)?;
             }
 
             self.ip_at_op_start = self.ip;
@@ -76,43 +70,84 @@ impl Vm {
                     self.stack_push(constant.clone());
                 }
                 OpCode::Negate => {
-                    let value = -self.stack_pop()?.1.cast_float();
-                    self.stack_push(value);
+                    let (operand_loc, operand) = self.stack_pop()?;
+                    let operand = operand.as_number().ok_or_else(|| {
+                        self.operand_type_error(
+                            ValueType::Number.into(),
+                            &operand,
+                            operand_loc,
+                            "-",
+                        )
+                    })?;
+                    self.stack_push(-operand);
                 }
                 OpCode::Add => {
-                    let b = self.stack_pop()?.1.cast_float();
-                    let a = self.stack_pop()?.1.cast_float();
-                    let value = a + b;
-                    self.stack_push(value);
+                    let (rhs_loc, rhs) = self.stack_pop()?;
+                    let (lhs_loc, lhs) = self.stack_pop()?;
+
+                    let lhs = lhs.as_number().ok_or_else(|| {
+                        self.operand_type_error(
+                            ValueDescriptor::AnyOf(vec![ValueType::String, ValueType::Number]),
+                            &lhs,
+                            lhs_loc,
+                            "+",
+                        )
+                    })?;
+                    let rhs = rhs.as_number().ok_or_else(|| {
+                        self.operand_type_error(ValueType::Number.into(), &rhs, rhs_loc, "+")
+                    })?;
+
+                    self.stack_push(lhs + rhs);
                 }
                 OpCode::Subtract => {
-                    let b = self.stack_pop()?.1.cast_float();
-                    let a = self.stack_pop()?.1.cast_float();
-                    let value = a - b;
-                    self.stack_push(value);
+                    let (rhs_loc, rhs) = self.stack_pop()?;
+                    let (lhs_loc, lhs) = self.stack_pop()?;
+
+                    let lhs = lhs.as_number().ok_or_else(|| {
+                        self.operand_type_error(ValueType::Number.into(), &lhs, lhs_loc, "-")
+                    })?;
+                    let rhs = rhs.as_number().ok_or_else(|| {
+                        self.operand_type_error(ValueType::Number.into(), &rhs, rhs_loc, "-")
+                    })?;
+
+                    self.stack_push(lhs - rhs);
                 }
                 OpCode::Multiply => {
-                    let b = self.stack_pop()?.1.cast_float();
-                    let a = self.stack_pop()?.1.cast_float();
-                    let value = a * b;
-                    self.stack_push(value);
+                    let (rhs_loc, rhs) = self.stack_pop()?;
+                    let (lhs_loc, lhs) = self.stack_pop()?;
+
+                    let lhs = lhs.as_number().ok_or_else(|| {
+                        self.operand_type_error(ValueType::Number.into(), &lhs, lhs_loc, "*")
+                    })?;
+                    let rhs = rhs.as_number().ok_or_else(|| {
+                        self.operand_type_error(ValueType::Number.into(), &rhs, rhs_loc, "*")
+                    })?;
+
+                    self.stack_push(lhs * rhs);
                 }
                 OpCode::Divide => {
-                    let b = self.stack_pop()?.1.cast_float();
-                    let a = self.stack_pop()?.1.cast_float();
-                    let value = a / b;
-                    self.stack_push(value);
+                    let (rhs_loc, rhs) = self.stack_pop()?;
+                    let (lhs_loc, lhs) = self.stack_pop()?;
+
+                    let lhs = lhs.as_number().ok_or_else(|| {
+                        self.operand_type_error(ValueType::Number.into(), &lhs, lhs_loc, "/")
+                    })?;
+                    let rhs = rhs.as_number().ok_or_else(|| {
+                        self.operand_type_error(ValueType::Number.into(), &rhs, rhs_loc, "/")
+                    })?;
+
+                    self.stack_push(lhs / rhs);
                 }
                 OpCode::Print => {
-                    let value = self.stack_pop()?;
-                    println!("{:?}", value);
+                    let value = self.stack_pop()?.1;
+                    writeln!(self.stdout, "{:?}", value).unwrap();
                 }
                 OpCode::Pop => {
                     self.stack_pop()?;
                 }
             };
 
-            if cfg!(debug_assertions) {
+            if cfg!(feature = "debug_stack") {
                 println!("     | stack: {:?}", self.stack);
             }
         }
@@ -139,5 +174,29 @@ impl Vm {
         let (next_ip, value) = read(self.current_chunk.as_ref().unwrap(), self.ip)?;
         self.ip = next_ip;
         Ok(value)
+    }
+    fn current_chunk(&self) -> &Chunk {
+        self.current_chunk.as_ref().unwrap()
+    }
+    fn current_op_debug(&self) -> &OpDebug {
+        self.current_chunk()
+            .read_op_debug(self.ip_at_op_start)
+            .unwrap()
+    }
+    fn operand_type_error(
+        &self,
+        expected: ValueDescriptor,
+        actual_value: &Value,
+        value_loc: usize,
+        operator: &str,
+    ) -> InterpreterError {
+        InterpreterError::OperandTypeError {
+            expected_type: expected,
+            actual_type: actual_value.type_of(),
+            operand_loc: self.current_chunk().read_op_debug(value_loc).unwrap().outer,
+            operator: operator.to_string(),
+            operator_loc: self.current_op_debug().inner,
+            source_code: self.current_chunk().source().clone(),
+        }
     }
 }

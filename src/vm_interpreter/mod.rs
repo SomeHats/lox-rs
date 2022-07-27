@@ -6,4 +6,4 @@ mod vm;
 
 pub use chunk::Chunk;
 pub use compiler::Compiler;
-pub use vm::Vm;
+pub use vm::{InterpreterError, Vm};

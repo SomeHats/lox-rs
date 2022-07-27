@@ -10,32 +10,48 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use libtest_mimic::{self, run_tests, Arguments, Outcome, Test};
 use lox_rs::{
-    Interpreter, Parser, ParserError, ParserOpts, ResolverError, RuntimeError, Scanner,
-    ScannerError, SourceOffset, SourceReference, SourceSpan,
+    vm_interpreter, Interpreter, Parser, ParserError, ParserOpts, ResolverError, RuntimeError,
+    Scanner, ScannerError, SourceOffset, SourceReference, SourceSpan,
 };
 use miette::{miette, IntoDiagnostic, Result};
 use regex::Regex;
 
 lazy_static! {
-    static ref IGNORE_PATTERN: Regex = Regex::new("test_fixtures/(benchmark|limit)").unwrap();
+    static ref TREEWALK_IGNORE_PATTERN: Regex = Regex::new("test_fixtures/(limit)").unwrap();
+    static ref BYTECODE_IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((assignment|block|bool|call|class|closure|constructor|field|for|function|if|inheritance|limit|logical_operator|method|regression|return|string|super|this|variable|while)|(comments/(line_at_eof|unicode)|precedence|redefine_panic|operator/(subtract_non_num|not_class|not|greater_nonnum_num|less_or_equal_num_nonnum|divide_num_nonnum|greater_or_equal_nonnum_num|equals_method|greater_or_equal_num_nonnum|subtract_nonnum_num|multiply_num_nonnum|divide_num_nonnum|equals|equals_class|less_num_nonnum|less_nonnum_num|subtract_num_nonnum|add_bool_string|divide_nonnum_num|comparison|greater_num_nonnum|less_or_equal_nonnum_num|multiply_nonnum_num|not_equals|negate_nonnum|add|add_string_nil)|number/(nan_equality)).lox$)").unwrap();
 }
 
 fn main() {
     let tests = read_all_files("test_fixtures".to_string().into())
         .unwrap()
         .into_iter()
-        .filter(|path| !path.starts_with("test_fixtures/scanner"))
-        .map(|path| Test {
-            name: path.to_string_lossy().into(),
-            kind: "tree-walk".into(),
-            is_bench: false,
-            is_ignored: IGNORE_PATTERN.is_match(&path.to_string_lossy()),
-            data: path,
+        .filter(|path| {
+            !path.starts_with("test_fixtures/scanner")
+                && !path.starts_with("test_fixtures/benchmark")
         })
+        .flat_map(|path| {
+            [
+                // Test {
+                //     name: path.to_string_lossy().into(),
+                //     kind: "treewalk".into(),
+                //     is_bench: false,
+                //     is_ignored: TREEWALK_IGNORE_PATTERN.is_match(&path.to_string_lossy()),
+                //     data: path.clone(),
+                // },
+                Test {
+                    name: path.to_string_lossy().into(),
+                    kind: "bytecode".into(),
+                    is_bench: false,
+                    is_ignored: BYTECODE_IGNORE_PATTERN.is_match(&path.to_string_lossy()),
+                    data: path,
+                },
+            ]
+        })
+        .filter(|test| !test.is_ignored)
         .collect::<Vec<_>>();
 
     run_tests(&Arguments::from_args(), tests, |test| {
-        match run_test(&test.data) {
+        match run_test(&test.data, &test.kind == "treewalk") {
             Ok(outcome) => outcome,
             Err(err) => Outcome::Failed {
                 msg: Some(format!("{:?}", err)),
@@ -52,7 +68,7 @@ lazy_static! {
     static ref RUNTIME_ERROR_RE: Regex = Regex::new("// RuntimeError: (.*)\n?").unwrap();
 }
 
-fn run_test(path: &Path) -> Result<Outcome> {
+fn run_test(path: &Path, is_treewalk: bool) -> Result<Outcome> {
     let test_source = fs::read_to_string(path).into_diagnostic()?;
     let source_reference =
         SourceReference::new(path.to_string_lossy().to_string(), test_source.clone());
@@ -133,45 +149,61 @@ fn run_test(path: &Path) -> Result<Outcome> {
     }
 
     let mut output_writer = StringWriter::new();
-    let mut interpreter = Interpreter::new(&mut output_writer);
-    let prepared_program = match interpreter.prepare(program) {
-        Ok(prepared) => prepared,
-        Err(errors) => {
-            for actual_error in errors {
-                match match_errors(
-                    actual_error,
-                    &expected_resolver_errors.pop_front(),
-                    &test_source,
-                ) {
-                    Ok(_) => continue,
-                    Err(msg) => return Ok(Outcome::Failed { msg: Some(msg) }),
+
+    if is_treewalk {
+        let mut interpreter = Interpreter::new(&mut output_writer);
+        let prepared_program = match interpreter.prepare(program) {
+            Ok(prepared) => prepared,
+            Err(errors) => {
+                for actual_error in errors {
+                    match match_errors(
+                        actual_error,
+                        &expected_resolver_errors.pop_front(),
+                        &test_source,
+                    ) {
+                        Ok(_) => continue,
+                        Err(msg) => return Ok(Outcome::Failed { msg: Some(msg) }),
+                    }
+                }
+
+                if !expected_resolver_errors.is_empty() {
+                    return Ok(Outcome::Failed {
+                        msg: Some(format!(
+                            "Expected errors:\n{}",
+                            expected_parser_errors
+                                .iter()
+                                .map(|err| format!(" - {}\n", err))
+                                .collect::<String>(),
+                        )),
+                    });
+                } else {
+                    return Ok(Outcome::Passed);
                 }
             }
+        };
 
-            if !expected_resolver_errors.is_empty() {
-                return Ok(Outcome::Failed {
-                    msg: Some(format!(
-                        "Expected errors:\n{}",
-                        expected_parser_errors
-                            .iter()
-                            .map(|err| format!(" - {}\n", err))
-                            .collect::<String>(),
-                    )),
-                });
-            } else {
-                return Ok(Outcome::Passed);
+        if let Err(err) = interpreter.interpret(&prepared_program) {
+            if let Err(err) = match_errors(err, &expected_runtime_error, &test_source) {
+                return Ok(Outcome::Failed { msg: Some(err) });
             }
+        } else if let Some(expected_err) = &expected_runtime_error {
+            return Ok(Outcome::Failed {
+                msg: Some(format!("Expected runtime error:\n{}", expected_err)),
+            });
         }
-    };
-
-    if let Err(err) = interpreter.interpret(&prepared_program) {
-        if let Err(err) = match_errors(err, &expected_runtime_error, &test_source) {
-            return Ok(Outcome::Failed { msg: Some(err) });
+    } else {
+        use vm_interpreter::*;
+        let mut vm = Vm::new(&mut output_writer);
+        let compiled = Compiler::compile(program);
+        if let Err(err) = vm.run(compiled) {
+            if let Err(err) = match_errors(err, &expected_runtime_error, &test_source) {
+                return Ok(Outcome::Failed { msg: Some(err) });
+            }
+        } else if let Some(expected_err) = &expected_runtime_error {
+            return Ok(Outcome::Failed {
+                msg: Some(format!("Expected runtime error:\n{}", expected_err)),
+            });
         }
-    } else if let Some(expected_err) = &expected_runtime_error {
-        return Ok(Outcome::Failed {
-            msg: Some(format!("Expected runtime error:\n{}", expected_err)),
-        });
     }
 
     let actual_output: String = output_writer.into();
@@ -571,6 +603,30 @@ impl FmtError for RuntimeError {
                 super_class_name,
                 actual_type.fmt_a(),
                 format_span(found_at, source)
+            ),
+        }
+    }
+}
+impl FmtError for vm_interpreter::InterpreterError {
+    fn fmt_error(&self, source: &str) -> String {
+        use vm_interpreter::InterpreterError::*;
+        match self {
+            CodeReadError(err) => format!("RuntimeError: CodeReadError: {}", err),
+            StackUnderflow => format!("RuntimeError: StackUnderflow"),
+            OperandTypeError {
+                expected_type,
+                actual_type,
+                operand_loc,
+                operator,
+                operator_loc,
+                source_code: _,
+            } => format!(
+                "RuntimeError: Operator {} {} expected {} got {} {}",
+                operator,
+                format_span(operator_loc, source),
+                expected_type.fmt_a(),
+                actual_type.fmt_a(),
+                format_span(operand_loc, source)
             ),
         }
     }

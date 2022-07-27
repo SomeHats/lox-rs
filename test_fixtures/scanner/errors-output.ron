@@ -27,10 +27,8 @@
             },
             source_code: SourceReference(
                 SourceReferenceInner {
-                    named_source: NamedSource {
-                        name: "errors-input.lox",
-                        source: "<redacted>",
-                    ,
+                    name: "errors-input.lox",
+                    source: "\"bad escape: -> \\1 <- here\"\n\nunknown :\n\n\"unterminated",
                 },
             ),
         },
@@ -58,10 +56,8 @@
             ),
             source_code: SourceReference(
                 SourceReferenceInner {
-                    named_source: NamedSource {
-                        name: "errors-input.lox",
-                        source: "<redacted>",
-                    ,
+                    name: "errors-input.lox",
+                    source: "\"bad escape: -> \\1 <- here\"\n\nunknown :\n\n\"unterminated",
                 },
             ),
         },
@@ -93,10 +89,8 @@
             },
             source_code: SourceReference(
                 SourceReferenceInner {
-                    named_source: NamedSource {
-                        name: "errors-input.lox",
-                        source: "<redacted>",
-                    ,
+                    name: "errors-input.lox",
+                    source: "\"bad escape: -> \\1 <- here\"\n\nunknown :\n\n\"unterminated",
                 },
             ),
         },

@@ -1,4 +1,7 @@
-use super::chunk::{Chunk, OpCode, OpDebug};
+use super::{
+    chunk::{Chunk, OpCode, OpDebug},
+    value::Value,
+};
 use crate::ast::*;
 
 pub struct Compiler {
@@ -13,7 +16,7 @@ impl Compiler {
         }: Program,
     ) -> Chunk {
         let mut compiler = Self {
-            chunk: Chunk::new(vec![], Some(source_reference)),
+            chunk: Chunk::new(source_reference),
             // source_reference: source_reference,
         };
 
@@ -61,12 +64,14 @@ impl Compiler {
         }
     }
     fn compile_literal_expr(&mut self, expr: &LiteralExpr) {
-        match expr.value {
-            LiteralValue::Number(value) => self
-                .chunk
-                .write_constant(value, OpDebug::single(expr.source_span())),
+        let value: Value = match expr.value {
+            LiteralValue::Nil => Value::Nil,
+            LiteralValue::Number(value) => value.into(),
+            LiteralValue::Boolean(value) => value.into(),
             _ => unimplemented!("{:?}", expr),
-        }
+        };
+        self.chunk
+            .write_constant(value, OpDebug::single(expr.source_span()))
     }
     fn compile_unary_expr(&mut self, expr: &UnaryExpr) {
         self.compile_expr(&expr.right);

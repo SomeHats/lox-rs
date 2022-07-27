@@ -22,11 +22,12 @@ impl Chunk {
         initial_offset: usize,
     ) -> Result<usize, CodeReadError> {
         let (mut offset, op_code) = self.read_op_code(initial_offset)?;
-        let source_info: Option<ColoredString> =
-            self.read_op_debug(initial_offset)
-                .map(|(source, op_debug)| {
-                    Colorize::clear(get_formatted_line(source.str(), op_debug).as_str())
-                });
+        let source_info = self
+            .read_op_debug(initial_offset)
+            .map(|op_debug| {
+                Colorize::clear(get_formatted_line(self.source().str(), op_debug).as_str())
+            })
+            .unwrap();
 
         match op_code {
             OpCode::Return
@@ -41,13 +42,8 @@ impl Chunk {
                     (Some(format!("{:>4}", initial_offset).dimmed()), 4),
                     (Some(" | ".into()), 3),
                     (Some(format!("{:?}", op_code).purple()), 50),
-                    (source_info, 0),
+                    (Some(source_info), 0),
                 ]);
-                // format!(
-                //     "{} | {}",
-                //     format!("{:04}", initial_offset).dimmed(),
-                //     format!("{:?}", op_code).purple(),
-                // )
             }
             OpCode::Constant => {
                 let (next_offset, address) = self.read_constant_address(offset)?;
@@ -62,15 +58,8 @@ impl Chunk {
                         Some(format!("{:?}", self.get_constant_value(address)?).blue()),
                         32,
                     ),
-                    (source_info, 0),
+                    (Some(source_info), 0),
                 ]);
-                // format!(
-                //     "{} | {} {} = {}",
-                //     format!("{:04}", initial_offset).dimmed(),
-                //     format!("{:?}", op_code).purple(),
-                //     format!("{}", address).green(),
-                //     format!("{:?}", self.get_constant_value(address)?).blue(),
-                // )
             }
         };
 
@@ -92,7 +81,7 @@ fn print_line<const N: usize>(parts: [(Option<ColoredString>, usize); N]) {
     println!("{}", out.on_black());
 }
 
-fn get_formatted_line(source: &str, op_debug: OpDebug) -> String {
+fn get_formatted_line(source: &str, op_debug: &OpDebug) -> String {
     let mut line_start_idx = 0;
     let mut line = 1;
     let mut line_end_idx = 0;

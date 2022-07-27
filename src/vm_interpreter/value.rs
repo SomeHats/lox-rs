@@ -32,15 +32,15 @@ impl Debug for Value {
     }
 }
 impl Value {
-    pub fn into_number(self) -> Option<f64> {
+    pub fn as_number(&self) -> Option<f64> {
         match self {
-            Self::Number(value) => Some(value),
+            Self::Number(value) => Some(*value),
             _ => None,
         }
     }
-    pub fn into_boolean(self) -> Option<bool> {
+    pub fn as_boolean(&self) -> Option<bool> {
         match self {
-            Self::Boolean(value) => Some(value),
+            Self::Boolean(value) => Some(*value),
             _ => None,
         }
     }
@@ -52,7 +52,7 @@ impl Value {
         }
     }
     pub fn cast_float(self) -> f64 {
-        self.into_number().unwrap()
+        self.as_number().unwrap()
     }
 }
 

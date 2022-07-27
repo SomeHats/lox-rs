@@ -19,6 +19,10 @@ libtest-mimic = "0.3.0"
 pretty_assertions = "1.2.0"
 regex = "1.5.5"
 
+[features]
+debug = []
+debug_stack = ["debug"]
+
 [[test]]
 name = "tests"
 path = "tests/main.rs"

@@ -48,18 +48,17 @@ impl OpDebug {
 pub struct Chunk {
     code: Vec<u8>,
     constants: Vec<Value>,
-    debug_data: Option<ChunkDebugData>,
+    debug_data: Vec<Option<OpDebug>>,
+    source: SourceReference,
 }
 
 impl Chunk {
-    pub fn new(code: Vec<u8>, debug_source: Option<SourceReference>) -> Self {
+    pub fn new(source: SourceReference) -> Self {
         Self {
-            code,
+            code: vec![],
             constants: vec![],
-            debug_data: debug_source.map(|source| ChunkDebugData {
-                source_code: source,
-                op_debugs: vec![],
-            }),
+            debug_data: vec![],
+            source,
         }
     }
     pub fn code(&self) -> &[u8] {
@@ -75,19 +74,13 @@ impl Chunk {
         ConstantAddress(self.constants.len() as u8 - 1)
     }
     fn write_debug_data(&mut self, op_debug: impl Into<Option<OpDebug>>) {
-        if let Some(debug_data) = &mut self.debug_data {
-            debug_data.op_debugs.push(op_debug.into());
-        }
+        self.debug_data.push(op_debug.into());
     }
-    pub fn write_basic_op(&mut self, op: OpCode, op_debug: impl Into<Option<OpDebug>>) {
+    pub fn write_basic_op(&mut self, op: OpCode, op_debug: OpDebug) {
         self.code.push(op.into());
         self.write_debug_data(op_debug);
     }
-    pub fn write_constant(
-        &mut self,
-        value: impl Into<Value>,
-        op_debug: impl Into<Option<OpDebug>>,
-    ) {
+    pub fn write_constant(&mut self, value: impl Into<Value>, op_debug: OpDebug) {
         let address = self.register_constant(value);
         self.code.push(OpCode::Constant.into());
         self.code.push(address.0);
@@ -100,10 +93,11 @@ impl Chunk {
             .cloned()
             .ok_or(CodeReadError::UnexpectedEnd)
     }
-    pub fn read_op_debug(&self, offset: usize) -> Option<(&SourceReference, OpDebug)> {
-        let debug_data = self.debug_data.as_ref()?;
-        let source_span = debug_data.op_debugs.get(offset)?.clone()?;
-        Some((&debug_data.source_code, source_span))
+    pub fn source(&self) -> &SourceReference {
+        &self.source
+    }
+    pub fn read_op_debug(&self, offset: usize) -> Option<&OpDebug> {
+        self.debug_data.get(offset)?.as_ref()
     }
     pub fn read_op_code(&self, offset: usize) -> Result<(usize, OpCode), CodeReadError> {
         let op_code = self.read_byte(offset)?;
@@ -122,9 +116,6 @@ impl Chunk {
     pub fn read_constant_value(&self, offset: usize) -> Result<(usize, &Value), CodeReadError> {
         let (offset, address) = self.read_constant_address(offset)?;
         Ok((offset, self.get_constant_value(address)?))
-    }
-    pub fn has_debug_data(&self) -> bool {
-        self.debug_data.is_some()
     }
 }
 

@@ -117,7 +117,7 @@ fn run_file(file_name: String, use_old: bool) -> Result<()> {
             }
         }
     } else {
-        let mut vm = Vm::new();
+        let mut vm = Vm::new(&mut stdout);
         if did_have_error {
             std::process::exit(70);
         } else {
@@ -154,8 +154,8 @@ fn repl_loop<
 }
 
 fn run_prompt(use_old: bool) -> Result<()> {
+    let mut stdout = stdout();
     if use_old {
-        let mut stdout = stdout();
         let mut interpreter = Interpreter::new(&mut stdout);
         repl_loop(|file_name, source| {
             let (program, did_have_error) =
@@ -164,7 +164,7 @@ fn run_prompt(use_old: bool) -> Result<()> {
                 .map(|program| interpreter.interpret(&program))
         })
     } else {
-        let mut vm = Vm::new();
+        let mut vm = Vm::new(&mut stdout);
         repl_loop(|file_name, source| {
             let (program, did_have_error) =
                 parse_and_report_errors(&file_name, &source, ParserOpts::default().for_repl());

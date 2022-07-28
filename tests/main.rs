@@ -18,7 +18,7 @@ use regex::Regex;
 
 lazy_static! {
     static ref TREEWALK_IGNORE_PATTERN: Regex = Regex::new("test_fixtures/(limit)").unwrap();
-    static ref BYTECODE_IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((assignment|block|bool|call|class|closure|constructor|field|for|function|if|inheritance|limit|logical_operator|method|regression|return|string|super|this|variable|while)|(comments/(line_at_eof|unicode)|precedence|redefine_panic|operator/(subtract_non_num|not_class|not|greater_nonnum_num|less_or_equal_num_nonnum|divide_num_nonnum|greater_or_equal_nonnum_num|equals_method|greater_or_equal_num_nonnum|subtract_nonnum_num|multiply_num_nonnum|divide_num_nonnum|equals|equals_class|less_num_nonnum|less_nonnum_num|subtract_num_nonnum|add_bool_string|divide_nonnum_num|comparison|greater_num_nonnum|less_or_equal_nonnum_num|multiply_nonnum_num|not_equals|negate_nonnum|add|add_string_nil)|number/(nan_equality)).lox$)").unwrap();
+    static ref BYTECODE_IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((assignment|block|call|class|closure|constructor|field|for|function|if|inheritance|limit|logical_operator|method|regression|return|string|super|this|variable|while)|(comments/(line_at_eof|unicode)|precedence|redefine_panic|operator/(equals_class|equals_method|not_class|not)|number/(nan_equality)).lox$)").unwrap();
 }
 
 fn main() {
@@ -612,7 +612,7 @@ impl FmtError for vm_interpreter::InterpreterError {
         use vm_interpreter::InterpreterError::*;
         match self {
             CodeReadError(err) => format!("RuntimeError: CodeReadError: {}", err),
-            StackUnderflow => format!("RuntimeError: StackUnderflow"),
+            StackUnderflow => "RuntimeError: StackUnderflow".to_string(),
             OperandTypeError {
                 expected_type,
                 actual_type,

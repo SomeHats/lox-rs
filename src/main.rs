@@ -130,9 +130,8 @@ fn run_file(file_name: String, use_old: bool) -> Result<()> {
 }
 
 fn repl_loop<
-    V: std::fmt::Debug,
     E: Diagnostic + Send + Sync + 'static,
-    F: FnMut(String, String) -> Option<Result<V, E>>,
+    F: FnMut(String, String) -> Option<Result<String, E>>,
 >(
     mut eval: F,
 ) -> Result<()> {
@@ -141,7 +140,7 @@ fn repl_loop<
     loop {
         match rl.readline(&format!("{}> ", repl_line)) {
             Ok(line) => match eval(format!("<repl-{}>", repl_line), format!("{}\n", line)) {
-                Some(Ok(val)) => println!("==> {:?}", val),
+                Some(Ok(val)) => println!("==> {}", val),
                 Some(Err(err)) => println!("{:?}", Report::new(err)),
                 None => {}
             },
@@ -160,8 +159,11 @@ fn run_prompt(use_old: bool) -> Result<()> {
         repl_loop(|file_name, source| {
             let (program, did_have_error) =
                 parse_and_report_errors(&file_name, &source, ParserOpts::default().for_repl());
-            prepare_interpreter(&mut interpreter, program, did_have_error)
-                .map(|program| interpreter.interpret(&program))
+            prepare_interpreter(&mut interpreter, program, did_have_error).map(|program| {
+                interpreter
+                    .interpret(&program)
+                    .map(|result| format!("{:?}", result))
+            })
         })
     } else {
         let mut vm = Vm::new(&mut stdout);

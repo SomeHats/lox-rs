@@ -1,4 +1,5 @@
 use super::chunk::{Chunk, CodeReadError, OpCode, OpDebug};
+use crate::ast::LiteralValue;
 use colored::{ColoredString, Colorize};
 use std::fmt::Write;
 
@@ -37,7 +38,16 @@ impl Chunk {
             | OpCode::Multiply
             | OpCode::Divide
             | OpCode::Print
-            | OpCode::Pop => {
+            | OpCode::Pop
+            | OpCode::Not
+            | OpCode::NotEqualTo
+            | OpCode::EqualTo
+            | OpCode::LessThan
+            | OpCode::LessThanOrEqualTo
+            | OpCode::GreaterThan
+            | OpCode::GreaterThanOrEqualTo
+            | OpCode::LogicalAnd
+            | OpCode::LogicalOr => {
                 print_line([
                     (Some(format!("{:>4}", initial_offset).dimmed()), 4),
                     (Some(" | ".into()), 3),
@@ -48,16 +58,20 @@ impl Chunk {
             OpCode::Constant => {
                 let (next_offset, address) = self.read_constant_address(offset)?;
                 offset = next_offset;
+                let value = self.get_constant_value(address)?;
+                let value_str = match value {
+                    LiteralValue::Nil | LiteralValue::Boolean(_) | LiteralValue::Number(_) => {
+                        format!("{:?}", value)
+                    }
+                    LiteralValue::String(reference) => format!("\"{}\"", reference),
+                };
                 print_line([
                     (Some(format!("{:>4}", initial_offset).dimmed()), 4),
                     (Some(" | ".into()), 3),
                     (Some(format!("{:?}", op_code).purple()), 10),
                     (Some(format!(" {:>4}", address).green()), 5),
                     (Some(" = ".into()), 3),
-                    (
-                        Some(format!("{:?}", self.get_constant_value(address)?).blue()),
-                        32,
-                    ),
+                    (Some(value_str.blue()), 32),
                     (Some(source_info), 0),
                 ]);
             }

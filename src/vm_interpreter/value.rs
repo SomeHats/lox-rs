@@ -1,13 +1,38 @@
-use super::object_table::{ObjectReference, ObjectTable};
+use super::{
+    chunk::ConstantValue,
+    gc::{Gc, Trace},
+};
 use itertools::Itertools;
 use std::fmt::{Debug, Display};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum Value {
     Nil,
     Number(f64),
     Boolean(bool),
-    String(ObjectReference<String>),
+    String(Gc<String>),
+}
+impl Trace for Value {
+    fn trace(&self) {
+        match self {
+            Value::Nil | Value::Number(_) | Value::Boolean(_) => (),
+            Value::String(s) => s.trace(),
+        }
+    }
+
+    fn root(&self) {
+        match self {
+            Value::Nil | Value::Number(_) | Value::Boolean(_) => (),
+            Value::String(s) => s.root(),
+        }
+    }
+
+    fn unroot(&self) {
+        match self {
+            Value::Nil | Value::Number(_) | Value::Boolean(_) => (),
+            Value::String(s) => s.unroot(),
+        }
+    }
 }
 impl From<f64> for Value {
     fn from(value: f64) -> Self {
@@ -24,9 +49,50 @@ impl From<()> for Value {
         Self::Nil
     }
 }
-impl From<ObjectReference<String>> for Value {
-    fn from(value: ObjectReference<String>) -> Self {
+impl From<Gc<String>> for Value {
+    fn from(value: Gc<String>) -> Self {
         Self::String(value)
+    }
+}
+impl From<ConstantValue> for Value {
+    fn from(value: ConstantValue) -> Self {
+        match value {
+            ConstantValue::Nil => Self::Nil,
+            ConstantValue::Number(value) => value.into(),
+            ConstantValue::Boolean(value) => value.into(),
+            ConstantValue::String(value) => value.into(),
+        }
+    }
+}
+impl Debug for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Nil => write!(f, "nil"),
+            Value::Number(value) => write!(f, "{}", value),
+            Value::Boolean(value) => write!(f, "{}", value),
+            Value::String(value) => write!(f, "\"{}\"", value.as_ref()),
+        }
+    }
+}
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Nil => write!(f, "nil"),
+            Value::Number(value) => write!(f, "{}", value),
+            Value::Boolean(value) => write!(f, "{}", value),
+            Value::String(value) => write!(f, "{}", value.as_ref()),
+        }
+    }
+}
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Nil, Value::Nil) => true,
+            (Value::Number(a), Value::Number(b)) => a == b,
+            (Value::Boolean(a), Value::Boolean(b)) => a == b,
+            (Value::String(a), Value::String(b)) => a.as_ref() == b.as_ref(),
+            _ => false,
+        }
     }
 }
 impl Value {
@@ -36,9 +102,9 @@ impl Value {
             _ => None,
         }
     }
-    pub fn as_string(&self) -> Option<&ObjectReference<String>> {
+    pub fn as_string(&self) -> Option<&Gc<String>> {
         match self {
-            Self::String(reference) => Some(reference),
+            Self::String(value) => Some(value),
             _ => None,
         }
     }
@@ -55,35 +121,6 @@ impl Value {
             Self::Nil => false,
             Self::Boolean(value) => value,
             _ => true,
-        }
-    }
-    pub fn to_string(&self, tables: &ValueTables) -> String {
-        match self {
-            Self::Nil => "nil".to_string(),
-            Self::Number(value) => value.to_string(),
-            Self::Boolean(value) => value.to_string(),
-            Self::String(reference) => tables.strings.get(reference).to_string(),
-        }
-    }
-    pub fn to_debug_string(&self, tables: &ValueTables) -> String {
-        match self {
-            Self::Nil => "nil".to_string(),
-            Self::Number(value) => value.to_string(),
-            Self::Boolean(value) => value.to_string(),
-            Self::String(reference) => {
-                format!("\"{}\"", tables.strings.get(reference))
-            }
-        }
-    }
-    pub fn eq(&self, other: &Self, tables: &ValueTables) -> bool {
-        match (self, other) {
-            (Self::Nil, Self::Nil) => true,
-            (Self::Number(value), Self::Number(other)) => value == other,
-            (Self::Boolean(value), Self::Boolean(other)) => value == other,
-            (Self::String(reference), Self::String(other)) => {
-                tables.strings.get(reference) == tables.strings.get(other)
-            }
-            _ => false,
         }
     }
 }
@@ -146,9 +183,4 @@ impl ValueDescriptor {
             }
         }
     }
-}
-
-#[derive(Debug, Default)]
-pub struct ValueTables {
-    pub strings: ObjectTable<String>,
 }

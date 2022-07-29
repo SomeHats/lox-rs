@@ -1,5 +1,4 @@
-use super::chunk::{Chunk, CodeReadError, OpCode, OpDebug};
-use crate::ast::LiteralValue;
+use super::chunk::{Chunk, CodeReadError, ConstantValue, OpCode, OpDebug};
 use colored::{ColoredString, Colorize};
 use std::fmt::Write;
 
@@ -60,10 +59,10 @@ impl Chunk {
                 offset = next_offset;
                 let value = self.get_constant_value(address)?;
                 let value_str = match value {
-                    LiteralValue::Nil | LiteralValue::Boolean(_) | LiteralValue::Number(_) => {
-                        format!("{:?}", value)
-                    }
-                    LiteralValue::String(reference) => format!("\"{}\"", reference),
+                    ConstantValue::Nil => "nil".to_string(),
+                    ConstantValue::Number(value) => format!("{}", value),
+                    ConstantValue::Boolean(value) => format!("{}", value),
+                    ConstantValue::String(value) => format!("\"{}\"", *value),
                 };
                 print_line([
                     (Some(format!("{:>4}", initial_offset).dimmed()), 4),

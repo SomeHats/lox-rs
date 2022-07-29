@@ -174,7 +174,7 @@ fn run_prompt(use_old: bool) -> Result<()> {
                 None
             } else {
                 let chunk = Compiler::compile(program);
-                Some(vm.run(chunk))
+                Some(vm.run(chunk).map(|result| format!("{:?}", result)))
             }
         })
     }

@@ -1,4 +1,7 @@
-use super::chunk::{Chunk, OpCode, OpDebug};
+use super::{
+    chunk::{Chunk, ConstantValue, OpCode, OpDebug},
+    gc::Gc,
+};
 use crate::ast::*;
 
 pub struct Compiler {
@@ -54,7 +57,15 @@ impl Compiler {
         match expr {
             Expr::Literal(expr) => {
                 let span = expr.source_span();
-                self.chunk.write_constant(expr.value, OpDebug::single(span))
+                self.chunk.write_constant(
+                    match expr.value {
+                        LiteralValue::String(value) => ConstantValue::String(Gc::new(value)),
+                        LiteralValue::Number(value) => ConstantValue::Number(value),
+                        LiteralValue::Boolean(value) => ConstantValue::Boolean(value),
+                        LiteralValue::Nil => ConstantValue::Nil,
+                    },
+                    OpDebug::single(span),
+                )
             }
             Expr::Unary(expr) => self.compile_unary_expr(expr),
             Expr::Binary(expr) => self.compile_binary_expr(expr),

@@ -1,8 +1,9 @@
 use super::{
-    chunk::{Chunk, CodeReadError, OpCode, OpDebug},
-    value::{Value, ValueDescriptor, ValueTables, ValueType},
+    chunk::{Chunk, CodeReadError, ConstantValue, OpCode, OpDebug},
+    gc::Gc,
+    value::{Value, ValueDescriptor, ValueType},
 };
-use crate::{ast::LiteralValue, SourceReference, SourceSpan};
+use crate::{SourceReference, SourceSpan};
 use itertools::Itertools;
 use miette::Diagnostic;
 use std::{io::Write, mem::replace};
@@ -35,7 +36,6 @@ pub struct Vm<'a, Stdout: Write> {
     ip_at_op_start: usize,
     last_popped: Value,
     stdout: &'a mut Stdout,
-    tables: ValueTables,
 }
 impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
     pub fn new(stdout: &'vm mut Stdout) -> Self {
@@ -46,10 +46,9 @@ impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
             ip_at_op_start: 0,
             last_popped: Value::Nil,
             stdout,
-            tables: ValueTables::default(),
         }
     }
-    pub fn run(&mut self, chunk: Chunk) -> Result<String, InterpreterError> {
+    pub fn run(&mut self, chunk: Chunk) -> Result<Value, InterpreterError> {
         self.current_chunk = Some(chunk);
         self.ip = 0;
 
@@ -65,6 +64,15 @@ impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
             if cfg!(feature = "debug") {
                 self.current_chunk().disassemble_instruction_at(self.ip)?;
             }
+            if cfg!(feature = "debug_stack") {
+                println!(
+                    "     | stack before: {}",
+                    self.stack
+                        .iter()
+                        .map(|(_, value)| format!("{:?}", value))
+                        .join(", ")
+                );
+            }
 
             self.ip_at_op_start = self.ip;
             let op_code = next!(read_op_code);
@@ -74,23 +82,21 @@ impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
                     let value = self.stack_pop()?.1;
                     println!("return: {:?}", value);
 
-                    return Ok(value.to_debug_string(&self.tables));
+                    return Ok(value);
                 }
                 OpCode::Constant => {
                     let constant = next!(read_constant_value);
                     let value = match constant {
-                        LiteralValue::Nil => Value::Nil,
-                        LiteralValue::Boolean(value) => Value::Boolean(*value),
-                        LiteralValue::Number(value) => Value::Number(*value),
-                        LiteralValue::String(value) => {
-                            self.tables.strings.allocate(value.clone()).into()
-                        }
+                        ConstantValue::Nil => Value::Nil,
+                        ConstantValue::Boolean(value) => value.into(),
+                        ConstantValue::Number(value) => value.into(),
+                        ConstantValue::String(value) => value.into(),
                     };
                     self.stack_push(value);
                 }
                 OpCode::Print => {
                     let value = self.stack_pop()?.1;
-                    writeln!(self.stdout, "{}", value.to_string(&self.tables)).unwrap();
+                    writeln!(self.stdout, "{}", value).unwrap();
                 }
                 OpCode::Pop => {
                     self.stack_pop()?;
@@ -132,12 +138,7 @@ impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
                                     "+",
                                 )
                             })?;
-                            let result = format!(
-                                "{}{}",
-                                self.tables.strings.get(&lhs),
-                                self.tables.strings.get(rhs)
-                            );
-                            self.tables.strings.allocate(result).into()
+                            Gc::new(format!("{}{}", lhs.as_ref(), rhs.as_ref())).into()
                         }
                         _ => {
                             return Err(self.operand_type_error(
@@ -198,13 +199,13 @@ impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
                     let (_, rhs) = self.stack_pop()?;
                     let (_, lhs) = self.stack_pop()?;
 
-                    self.stack_push(lhs.eq(&rhs, &self.tables));
+                    self.stack_push(lhs == rhs);
                 }
                 OpCode::NotEqualTo => {
                     let (_, rhs) = self.stack_pop()?;
                     let (_, lhs) = self.stack_pop()?;
 
-                    self.stack_push(!lhs.eq(&rhs, &self.tables));
+                    self.stack_push(lhs != rhs);
                 }
                 OpCode::LessThan => {
                     let (rhs_loc, rhs) = self.stack_pop()?;
@@ -274,10 +275,10 @@ impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
 
             if cfg!(feature = "debug_stack") {
                 println!(
-                    "     | stack: {}",
+                    "     | stack after: {}",
                     self.stack
                         .iter()
-                        .map(|(_, value)| value.to_debug_string(&self.tables))
+                        .map(|(_, value)| format!("{:?}", value))
                         .join(", ")
                 );
             }
@@ -285,7 +286,7 @@ impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
 
         if self.stack.is_empty() {
             let last_popped = replace(&mut self.last_popped, Value::Nil);
-            Ok(last_popped.to_debug_string(&self.tables))
+            Ok(last_popped)
         } else {
             panic!("too many values left on stack")
         }

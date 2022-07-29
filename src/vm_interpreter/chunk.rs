@@ -1,9 +1,10 @@
-use super::object_table::{ObjectReference, ObjectTable};
-use crate::{ast::LiteralValue, SourceReference, SourceSpan};
+use crate::{SourceReference, SourceSpan};
 use miette::Diagnostic;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::{convert::TryFrom, fmt::Display};
 use thiserror::Error;
+
+use super::gc::Gc;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ConstantAddress(u8);
@@ -11,6 +12,14 @@ impl Display for ConstantAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "@{}", self.0)
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum ConstantValue {
+    Nil,
+    Number(f64),
+    Boolean(bool),
+    String(Gc<String>),
 }
 
 #[derive(Debug, IntoPrimitive, TryFromPrimitive, Clone, Copy)]
@@ -53,10 +62,9 @@ impl OpDebug {
 #[derive(Debug)]
 pub struct Chunk {
     code: Vec<u8>,
-    constants: Vec<LiteralValue>,
+    constants: Vec<ConstantValue>,
     debug_data: Vec<Option<OpDebug>>,
     source: SourceReference,
-    strings: ObjectTable<String>,
 }
 
 impl Chunk {
@@ -66,7 +74,6 @@ impl Chunk {
             constants: vec![],
             debug_data: vec![],
             source,
-            strings: ObjectTable::new(),
         }
     }
     pub fn code(&self) -> &[u8] {
@@ -75,18 +82,13 @@ impl Chunk {
     pub fn get_constant_value(
         &self,
         address: ConstantAddress,
-    ) -> Result<&LiteralValue, CodeReadError> {
+    ) -> Result<ConstantValue, CodeReadError> {
         self.constants
             .get(address.0 as usize)
+            .cloned()
             .ok_or(CodeReadError::InvalidConstantAddress(address))
     }
-    pub fn register_string(&mut self, string: String) -> ObjectReference<String> {
-        self.strings.allocate(string)
-    }
-    pub fn read_string(&self, reference: &ObjectReference<String>) -> &String {
-        self.strings.get(reference)
-    }
-    pub fn register_constant(&mut self, constant: LiteralValue) -> ConstantAddress {
+    pub fn register_constant(&mut self, constant: ConstantValue) -> ConstantAddress {
         self.constants.push(constant);
         ConstantAddress(self.constants.len() as u8 - 1)
     }
@@ -97,7 +99,7 @@ impl Chunk {
         self.code.push(op.into());
         self.write_debug_data(op_debug);
     }
-    pub fn write_constant(&mut self, value: LiteralValue, op_debug: OpDebug) {
+    pub fn write_constant(&mut self, value: ConstantValue, op_debug: OpDebug) {
         let address = self.register_constant(value);
         self.code.push(OpCode::Constant.into());
         self.code.push(address.0);
@@ -133,7 +135,7 @@ impl Chunk {
     pub fn read_constant_value(
         &self,
         offset: usize,
-    ) -> Result<(usize, &LiteralValue), CodeReadError> {
+    ) -> Result<(usize, ConstantValue), CodeReadError> {
         let (offset, address) = self.read_constant_address(offset)?;
         Ok((offset, self.get_constant_value(address)?))
     }

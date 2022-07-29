@@ -390,6 +390,7 @@ dependencies = [
 name = "lox-rs"
 version = "0.1.0"
 dependencies = [
+ "backtrace",
  "colored",
  "itertools",
  "lazy_static",

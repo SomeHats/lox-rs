@@ -1,8 +1,7 @@
-mod arena;
 mod chunk;
 mod compiler;
 pub mod disassembler;
-mod object_table;
+mod gc;
 mod value;
 mod vm;
 

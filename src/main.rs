@@ -121,7 +121,7 @@ fn run_file(file_name: String, use_old: bool) -> Result<()> {
         if did_have_error {
             std::process::exit(70);
         } else {
-            let compiled = Compiler::compile(program);
+            let compiled = Compiler::compile(program)?;
             vm.run(compiled)?;
         }
     }
@@ -129,10 +129,7 @@ fn run_file(file_name: String, use_old: bool) -> Result<()> {
     Ok(())
 }
 
-fn repl_loop<
-    E: Diagnostic + Send + Sync + 'static,
-    F: FnMut(String, String) -> Option<Result<String, E>>,
->(
+fn repl_loop<F: FnMut(String, String) -> Option<Result<String, Report>>>(
     mut eval: F,
 ) -> Result<()> {
     let mut rl = rustyline::Editor::<()>::new();
@@ -141,7 +138,7 @@ fn repl_loop<
         match rl.readline(&format!("{}> ", repl_line)) {
             Ok(line) => match eval(format!("<repl-{}>", repl_line), format!("{}\n", line)) {
                 Some(Ok(val)) => println!("==> {}", val),
-                Some(Err(err)) => println!("{:?}", Report::new(err)),
+                Some(Err(err)) => println!("{:?}", err),
                 None => {}
             },
             Err(ReadlineError::Interrupted) => return Ok(()),
@@ -163,6 +160,7 @@ fn run_prompt(use_old: bool) -> Result<()> {
                 interpreter
                     .interpret(&program)
                     .map(|result| format!("{:?}", result))
+                    .map_err(Report::new)
             })
         })
     } else {
@@ -173,8 +171,14 @@ fn run_prompt(use_old: bool) -> Result<()> {
             if did_have_error {
                 None
             } else {
-                let chunk = Compiler::compile(program);
-                Some(vm.run(chunk).map(|result| format!("{:?}", result)))
+                match Compiler::compile(program) {
+                    Ok(chunk) => Some(
+                        vm.run(chunk)
+                            .map(|result| format!("{:?}", result))
+                            .map_err(Report::new),
+                    ),
+                    Err(error) => Some(Err(Report::new(error))),
+                }
             }
         })
     }

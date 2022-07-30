@@ -1,12 +1,12 @@
 use super::{
     chunk::{Chunk, CodeReadError, ConstantValue, OpCode, OpDebug},
-    gc::Gc,
+    gc::GcString,
     value::{Value, ValueDescriptor, ValueType},
 };
 use crate::{SourceReference, SourceSpan};
 use itertools::Itertools;
 use miette::Diagnostic;
-use std::{io::Write, mem::replace};
+use std::{collections::HashMap, io::Write, mem::replace};
 use thiserror::Error;
 
 #[derive(Debug, Error, Diagnostic)]
@@ -27,6 +27,14 @@ pub enum InterpreterError {
         #[source_code]
         source_code: SourceReference,
     },
+    #[error("Undefined variable {name}")]
+    UndefinedVariable {
+        name: String,
+        #[label("found here")]
+        found_at: SourceSpan,
+        #[source_code]
+        source_code: SourceReference,
+    },
 }
 
 pub struct Vm<'a, Stdout: Write> {
@@ -34,8 +42,9 @@ pub struct Vm<'a, Stdout: Write> {
     ip: usize,
     stack: Vec<(usize, Value)>,
     ip_at_op_start: usize,
-    last_popped: Value,
+    last_pushed: Value,
     stdout: &'a mut Stdout,
+    globals: HashMap<GcString, Value>,
 }
 impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
     pub fn new(stdout: &'vm mut Stdout) -> Self {
@@ -44,8 +53,9 @@ impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
             ip: 0,
             stack: vec![],
             ip_at_op_start: 0,
-            last_popped: Value::Nil,
+            last_pushed: Value::Nil,
             stdout,
+            globals: HashMap::new(),
         }
     }
     pub fn run(&mut self, chunk: Chunk) -> Result<Value, InterpreterError> {
@@ -64,15 +74,6 @@ impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
             if cfg!(feature = "debug") {
                 self.current_chunk().disassemble_instruction_at(self.ip)?;
             }
-            if cfg!(feature = "debug_stack") {
-                println!(
-                    "     | stack before: {}",
-                    self.stack
-                        .iter()
-                        .map(|(_, value)| format!("{:?}", value))
-                        .join(", ")
-                );
-            }
 
             self.ip_at_op_start = self.ip;
             let op_code = next!(read_op_code);
@@ -84,15 +85,53 @@ impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
 
                     return Ok(value);
                 }
+                OpCode::Nil => self.stack_push(Value::Nil),
                 OpCode::Constant => {
                     let constant = next!(read_constant_value);
-                    let value = match constant {
-                        ConstantValue::Nil => Value::Nil,
+                    let value: Value = match constant.clone() {
                         ConstantValue::Boolean(value) => value.into(),
                         ConstantValue::Number(value) => value.into(),
                         ConstantValue::String(value) => value.into(),
                     };
                     self.stack_push(value);
+                }
+                OpCode::DefineGlobal => {
+                    let value = self.stack_pop()?.1;
+                    let name = next!(read_global_name);
+                    self.globals.insert(name.clone(), value);
+                }
+                OpCode::ReadGlobal => {
+                    let name = next!(read_global_name);
+                    let value = self.globals.get(&name).ok_or_else(|| {
+                        InterpreterError::UndefinedVariable {
+                            name: name.to_string(),
+                            found_at: self.current_op_debug().inner,
+                            source_code: self.current_chunk().source().clone(),
+                        }
+                    })?;
+                    self.stack_push(value.clone());
+                }
+                OpCode::SetGlobal => {
+                    let name = next!(read_global_name);
+                    let value = self.stack_peek()?.1;
+                    if self.globals.contains_key(name) {
+                        self.globals.insert(name.clone(), value.clone());
+                    } else {
+                        return Err(InterpreterError::UndefinedVariable {
+                            name: name.to_string(),
+                            found_at: self.current_op_debug().inner,
+                            source_code: self.current_chunk().source().clone(),
+                        });
+                    }
+                }
+                OpCode::ReadLocal => {
+                    let index = next!(read_u8);
+                    self.stack_push(self.stack[usize::from(index)].1.clone())
+                }
+                OpCode::SetLocal => {
+                    let index = next!(read_u8);
+                    let value = self.stack_peek()?.1;
+                    self.stack[usize::from(index)] = (self.ip_at_op_start, value.clone());
                 }
                 OpCode::Print => {
                     let value = self.stack_pop()?.1;
@@ -138,7 +177,7 @@ impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
                                     "+",
                                 )
                             })?;
-                            Gc::new(format!("{}{}", lhs.as_ref(), rhs.as_ref())).into()
+                            GcString::new(format!("{}{}", lhs, rhs)).into()
                         }
                         _ => {
                             return Err(self.operand_type_error(
@@ -285,19 +324,25 @@ impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
         }
 
         if self.stack.is_empty() {
-            let last_popped = replace(&mut self.last_popped, Value::Nil);
+            let last_popped = replace(&mut self.last_pushed, Value::Nil);
             Ok(last_popped)
         } else {
             panic!("too many values left on stack")
         }
     }
     fn stack_push(&mut self, value: impl Into<Value>) {
-        self.stack.push((self.ip_at_op_start, value.into()));
+        let value = value.into();
+        self.last_pushed = value.clone();
+        self.stack.push((self.ip_at_op_start, value));
     }
     fn stack_pop(&mut self) -> Result<(usize, Value), InterpreterError> {
-        let (addr, value) = self.stack.pop().ok_or(InterpreterError::StackUnderflow)?;
-        self.last_popped = value.clone();
-        Ok((addr, value))
+        self.stack.pop().ok_or(InterpreterError::StackUnderflow)
+    }
+    fn stack_peek(&self) -> Result<(usize, &Value), InterpreterError> {
+        self.stack
+            .last()
+            .ok_or(InterpreterError::StackUnderflow)
+            .map(|(addr, value)| (*addr, value))
     }
     fn current_chunk(&self) -> &Chunk {
         self.current_chunk.as_ref().unwrap()

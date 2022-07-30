@@ -18,7 +18,7 @@ use regex::Regex;
 
 lazy_static! {
     static ref TREEWALK_IGNORE_PATTERN: Regex = Regex::new("test_fixtures/(limit)").unwrap();
-    static ref BYTECODE_IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((assignment|block|call|class|closure|constructor|field|for|function|if|inheritance|limit|logical_operator|method|regression|return|string|super|this|variable|while)|(comments/(line_at_eof|unicode)|precedence|redefine_panic|operator/(equals_class|equals_method|not_class|not)|number/(nan_equality)).lox$)").unwrap();
+    static ref BYTECODE_IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((call|class|closure|constructor|field|for|function|if|inheritance|limit|logical_operator|method|regression|return|super|this|while)|(comments/(line_at_eof|unicode)|precedence|redefine_panic|operator/(equals_class|equals_method|not_class|not)|number/(nan_equality)|assignment/to_this|block/empty|variable/(early_bound|local_from_method|duplicate_parameter|unreached_undefined|collide_with_parameter)).lox$)").unwrap();
 }
 
 fn main() {
@@ -31,13 +31,13 @@ fn main() {
         })
         .flat_map(|path| {
             [
-                // Test {
-                //     name: path.to_string_lossy().into(),
-                //     kind: "treewalk".into(),
-                //     is_bench: false,
-                //     is_ignored: TREEWALK_IGNORE_PATTERN.is_match(&path.to_string_lossy()),
-                //     data: path.clone(),
-                // },
+                Test {
+                    name: path.to_string_lossy().into(),
+                    kind: "treewalk".into(),
+                    is_bench: false,
+                    is_ignored: TREEWALK_IGNORE_PATTERN.is_match(&path.to_string_lossy()),
+                    data: path.clone(),
+                },
                 Test {
                     name: path.to_string_lossy().into(),
                     kind: "bytecode".into(),
@@ -69,6 +69,21 @@ lazy_static! {
 }
 
 fn run_test(path: &Path, is_treewalk: bool) -> Result<Outcome> {
+    let result = run_test_for_real(path, is_treewalk);
+
+    if !is_treewalk {
+        use vm_interpreter::gc_stats::*;
+        assert_eq!(
+            total_root_count(),
+            0,
+            "GC total outstanding root count must be zero"
+        )
+    }
+
+    result
+}
+
+fn run_test_for_real(path: &Path, is_treewalk: bool) -> Result<Outcome> {
     let test_source = fs::read_to_string(path).into_diagnostic()?;
     let source_reference =
         SourceReference::new(path.to_string_lossy().to_string(), test_source.clone());
@@ -194,7 +209,35 @@ fn run_test(path: &Path, is_treewalk: bool) -> Result<Outcome> {
     } else {
         use vm_interpreter::*;
         let mut vm = Vm::new(&mut output_writer);
-        let compiled = Compiler::compile(program);
+        let compiled = match Compiler::compile(program) {
+            Ok(compiled) => compiled,
+            Err(errors) => {
+                for actual_error in errors.errors {
+                    match match_errors(
+                        actual_error,
+                        &expected_resolver_errors.pop_front(),
+                        &test_source,
+                    ) {
+                        Ok(_) => continue,
+                        Err(msg) => return Ok(Outcome::Failed { msg: Some(msg) }),
+                    }
+                }
+
+                if !expected_resolver_errors.is_empty() {
+                    return Ok(Outcome::Failed {
+                        msg: Some(format!(
+                            "Expected errors:\n{}",
+                            expected_parser_errors
+                                .iter()
+                                .map(|err| format!(" - {}\n", err))
+                                .collect::<String>(),
+                        )),
+                    });
+                } else {
+                    return Ok(Outcome::Passed);
+                }
+            }
+        };
         if let Err(err) = vm.run(compiled) {
             if let Err(err) = match_errors(err, &expected_runtime_error, &test_source) {
                 return Ok(Outcome::Failed { msg: Some(err) });
@@ -607,6 +650,33 @@ impl FmtError for RuntimeError {
         }
     }
 }
+impl FmtError for vm_interpreter::CompilerError {
+    fn fmt_error(&self, source: &str) -> String {
+        use vm_interpreter::CompilerError::*;
+        match self {
+            VariableUsedInOwnInitializer {
+                declared_at,
+                used_at,
+                source_code: _,
+            } => format!(
+                "ResolverError: variable {} used in own initializer {}",
+                format_span(declared_at, source),
+                format_span(used_at, source),
+            ),
+            VariableAlreadyDeclared {
+                name,
+                found_at,
+                first_found_at,
+                source_code: _,
+            } => format!(
+                "ResolverError: variable {} {} already declared {}",
+                name,
+                format_span(found_at, source),
+                format_span(first_found_at, source)
+            ),
+        }
+    }
+}
 impl FmtError for vm_interpreter::InterpreterError {
     fn fmt_error(&self, source: &str) -> String {
         use vm_interpreter::InterpreterError::*;
@@ -627,6 +697,15 @@ impl FmtError for vm_interpreter::InterpreterError {
                 expected_type.fmt_a(),
                 actual_type.fmt_a(),
                 format_span(operand_loc, source)
+            ),
+            UndefinedVariable {
+                name,
+                found_at,
+                source_code: _,
+            } => format!(
+                "RuntimeError: undefined variable {} {}",
+                name,
+                format_span(found_at, source)
             ),
         }
     }

@@ -65,7 +65,7 @@ impl AstNode for Program {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Identifier {
     pub source_span: SourceSpan,
     pub name: String,

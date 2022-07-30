@@ -1,8 +1,9 @@
 use super::{
     chunk::ConstantValue,
-    gc::{Gc, Trace},
+    gc::{GcString, Trace},
 };
 use itertools::Itertools;
+use ordered_float::OrderedFloat;
 use std::fmt::{Debug, Display};
 
 #[derive(Clone)]
@@ -10,7 +11,7 @@ pub enum Value {
     Nil,
     Number(f64),
     Boolean(bool),
-    String(Gc<String>),
+    String(GcString),
 }
 impl Trace for Value {
     fn trace(&self) {
@@ -39,6 +40,11 @@ impl From<f64> for Value {
         Self::Number(value)
     }
 }
+impl From<OrderedFloat<f64>> for Value {
+    fn from(value: OrderedFloat<f64>) -> Self {
+        Self::Number(value.into())
+    }
+}
 impl From<bool> for Value {
     fn from(value: bool) -> Self {
         Self::Boolean(value)
@@ -49,15 +55,14 @@ impl From<()> for Value {
         Self::Nil
     }
 }
-impl From<Gc<String>> for Value {
-    fn from(value: Gc<String>) -> Self {
+impl From<GcString> for Value {
+    fn from(value: GcString) -> Self {
         Self::String(value)
     }
 }
 impl From<ConstantValue> for Value {
     fn from(value: ConstantValue) -> Self {
         match value {
-            ConstantValue::Nil => Self::Nil,
             ConstantValue::Number(value) => value.into(),
             ConstantValue::Boolean(value) => value.into(),
             ConstantValue::String(value) => value.into(),
@@ -70,7 +75,7 @@ impl Debug for Value {
             Value::Nil => write!(f, "nil"),
             Value::Number(value) => write!(f, "{}", value),
             Value::Boolean(value) => write!(f, "{}", value),
-            Value::String(value) => write!(f, "\"{}\"", value.as_ref()),
+            Value::String(value) => write!(f, "\"{}\"", value),
         }
     }
 }
@@ -80,7 +85,7 @@ impl Display for Value {
             Value::Nil => write!(f, "nil"),
             Value::Number(value) => write!(f, "{}", value),
             Value::Boolean(value) => write!(f, "{}", value),
-            Value::String(value) => write!(f, "{}", value.as_ref()),
+            Value::String(value) => write!(f, "{}", value),
         }
     }
 }
@@ -90,7 +95,7 @@ impl PartialEq for Value {
             (Value::Nil, Value::Nil) => true,
             (Value::Number(a), Value::Number(b)) => a == b,
             (Value::Boolean(a), Value::Boolean(b)) => a == b,
-            (Value::String(a), Value::String(b)) => a.as_ref() == b.as_ref(),
+            (Value::String(a), Value::String(b)) => a == b,
             _ => false,
         }
     }
@@ -102,7 +107,7 @@ impl Value {
             _ => None,
         }
     }
-    pub fn as_string(&self) -> Option<&Gc<String>> {
+    pub fn as_string(&self) -> Option<&GcString> {
         match self {
             Self::String(value) => Some(value),
             _ => None,

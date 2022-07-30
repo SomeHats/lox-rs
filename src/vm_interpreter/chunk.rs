@@ -1,10 +1,10 @@
+use super::gc::GcString;
 use crate::{SourceReference, SourceSpan};
 use miette::Diagnostic;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use std::{convert::TryFrom, fmt::Display};
+use ordered_float::OrderedFloat;
+use std::{collections::HashMap, convert::TryFrom, fmt::Display};
 use thiserror::Error;
-
-use super::gc::Gc;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ConstantAddress(u8);
@@ -14,12 +14,11 @@ impl Display for ConstantAddress {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ConstantValue {
-    Nil,
-    Number(f64),
+    Number(OrderedFloat<f64>),
     Boolean(bool),
-    String(Gc<String>),
+    String(GcString),
 }
 
 #[derive(Debug, IntoPrimitive, TryFromPrimitive, Clone, Copy)]
@@ -27,7 +26,13 @@ pub enum ConstantValue {
 pub enum OpCode {
     Return,
     Pop,
+    Nil,
     Constant,
+    DefineGlobal,
+    ReadGlobal,
+    SetGlobal,
+    ReadLocal,
+    SetLocal,
     Negate,
     Add,
     Subtract,
@@ -62,6 +67,7 @@ impl OpDebug {
 #[derive(Debug)]
 pub struct Chunk {
     code: Vec<u8>,
+    constant_indexes: HashMap<ConstantValue, ConstantAddress>,
     constants: Vec<ConstantValue>,
     debug_data: Vec<Option<OpDebug>>,
     source: SourceReference,
@@ -72,6 +78,7 @@ impl Chunk {
         Self {
             code: vec![],
             constants: vec![],
+            constant_indexes: HashMap::new(),
             debug_data: vec![],
             source,
         }
@@ -82,46 +89,64 @@ impl Chunk {
     pub fn get_constant_value(
         &self,
         address: ConstantAddress,
-    ) -> Result<ConstantValue, CodeReadError> {
+    ) -> Result<&ConstantValue, CodeReadError> {
         self.constants
             .get(address.0 as usize)
-            .cloned()
             .ok_or(CodeReadError::InvalidConstantAddress(address))
     }
     pub fn register_constant(&mut self, constant: ConstantValue) -> ConstantAddress {
-        self.constants.push(constant);
-        ConstantAddress(self.constants.len() as u8 - 1)
+        let constant_indexes = &mut self.constant_indexes;
+        let constants = &mut self.constants;
+        *constant_indexes
+            .entry(constant)
+            .or_insert_with_key(|constant| {
+                let address = ConstantAddress(constants.len() as u8);
+                constants.push(constant.clone());
+                address
+            })
     }
-    fn write_debug_data(&mut self, op_debug: impl Into<Option<OpDebug>>) {
+    fn write(&mut self, byte: u8, op_debug: impl Into<Option<OpDebug>>) {
+        self.code.push(byte);
         self.debug_data.push(op_debug.into());
     }
     pub fn write_basic_op(&mut self, op: OpCode, op_debug: OpDebug) {
-        self.code.push(op.into());
-        self.write_debug_data(op_debug);
+        self.write(op.into(), op_debug);
     }
     pub fn write_constant(&mut self, value: ConstantValue, op_debug: OpDebug) {
         let address = self.register_constant(value);
-        self.code.push(OpCode::Constant.into());
-        self.code.push(address.0);
-        self.write_debug_data(op_debug);
-        self.write_debug_data(None);
+        self.write(OpCode::Constant.into(), op_debug);
+        self.write(address.0, None);
     }
-    pub fn read_byte(&self, offset: usize) -> Result<u8, CodeReadError> {
+    pub fn write_global_op(&mut self, op_code: OpCode, name: GcString, op_debug: OpDebug) {
+        let address = self.register_constant(ConstantValue::String(name));
+        self.write(op_code.into(), op_debug);
+        self.write(address.0, None);
+    }
+    pub fn write_local_op(&mut self, op_code: OpCode, index: u8, op_debug: OpDebug) {
+        self.write(op_code.into(), op_debug);
+        self.write(index, None);
+    }
+
+    pub fn source(&self) -> &SourceReference {
+        &self.source
+    }
+    fn read_byte(&self, offset: usize) -> Result<u8, CodeReadError> {
         self.code
             .get(offset)
             .cloned()
             .ok_or(CodeReadError::UnexpectedEnd)
     }
-    pub fn source(&self) -> &SourceReference {
-        &self.source
+    pub fn read_u8(&self, offset: usize) -> Result<(usize, u8), CodeReadError> {
+        let byte = self.read_byte(offset)?;
+        Ok((offset + 1, byte))
     }
     pub fn read_op_debug(&self, offset: usize) -> Option<&OpDebug> {
         self.debug_data.get(offset)?.as_ref()
     }
     pub fn read_op_code(&self, offset: usize) -> Result<(usize, OpCode), CodeReadError> {
-        let op_code = self.read_byte(offset)?;
+        let (offset, op_code) = self.read_u8(offset)?;
         Ok((
-            offset + 1,
+            offset,
             OpCode::try_from(op_code).map_err(|_| CodeReadError::InvalidOpCode(offset, op_code))?,
         ))
     }
@@ -129,15 +154,22 @@ impl Chunk {
         &self,
         offset: usize,
     ) -> Result<(usize, ConstantAddress), CodeReadError> {
-        let address = self.read_byte(offset)?;
-        Ok((offset + 1, ConstantAddress(address)))
+        let (offset, address) = self.read_u8(offset)?;
+        Ok((offset, ConstantAddress(address)))
     }
     pub fn read_constant_value(
         &self,
         offset: usize,
-    ) -> Result<(usize, ConstantValue), CodeReadError> {
+    ) -> Result<(usize, &ConstantValue), CodeReadError> {
         let (offset, address) = self.read_constant_address(offset)?;
         Ok((offset, self.get_constant_value(address)?))
+    }
+    pub fn read_global_name(&self, offset: usize) -> Result<(usize, &GcString), CodeReadError> {
+        let (offset, name) = self.read_constant_value(offset)?;
+        match name {
+            ConstantValue::String(name) => Ok((offset, name)),
+            _ => Err(CodeReadError::InvalidGlobalName(offset)),
+        }
     }
 }
 
@@ -155,4 +187,6 @@ pub enum CodeReadError {
     InvalidOpCode(usize, u8),
     #[error("Unknown constant {0}")]
     InvalidConstantAddress(ConstantAddress),
+    #[error("Invalid global name at index {0}")]
+    InvalidGlobalName(usize),
 }

@@ -31,13 +31,14 @@ impl Chunk {
 
         match op_code {
             OpCode::Return
+            | OpCode::Print
+            | OpCode::Pop
+            | OpCode::Nil
             | OpCode::Negate
             | OpCode::Add
             | OpCode::Subtract
             | OpCode::Multiply
             | OpCode::Divide
-            | OpCode::Print
-            | OpCode::Pop
             | OpCode::Not
             | OpCode::NotEqualTo
             | OpCode::EqualTo
@@ -54,15 +55,25 @@ impl Chunk {
                     (Some(source_info), 0),
                 ]);
             }
-            OpCode::Constant => {
+            OpCode::ReadLocal | OpCode::SetLocal => {
+                let (next_offset, local_index) = self.read_u8(offset)?;
+                offset = next_offset;
+                print_line([
+                    (Some(format!("{:>4}", initial_offset).dimmed()), 4),
+                    (Some(" | ".into()), 3),
+                    (Some(format!("{:?}", op_code).purple()), 10),
+                    (Some(format!(" {}", local_index).green()), 40),
+                    (Some(source_info), 0),
+                ]);
+            }
+            OpCode::Constant | OpCode::DefineGlobal | OpCode::ReadGlobal | OpCode::SetGlobal => {
                 let (next_offset, address) = self.read_constant_address(offset)?;
                 offset = next_offset;
                 let value = self.get_constant_value(address)?;
                 let value_str = match value {
-                    ConstantValue::Nil => "nil".to_string(),
                     ConstantValue::Number(value) => format!("{}", value),
                     ConstantValue::Boolean(value) => format!("{}", value),
-                    ConstantValue::String(value) => format!("\"{}\"", *value),
+                    ConstantValue::String(value) => format!("\"{}\"", value),
                 };
                 print_line([
                     (Some(format!("{:>4}", initial_offset).dimmed()), 4),

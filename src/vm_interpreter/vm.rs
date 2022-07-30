@@ -103,6 +103,10 @@ impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
                         self.ip = self.ip_at_op_start + usize::from(offset);
                     }
                 }
+                OpCode::Loop => {
+                    let offset = next!(read_u16);
+                    self.ip = self.ip_at_op_start - usize::from(offset);
+                }
                 OpCode::Nil => self.stack_push(Value::Nil),
                 OpCode::Constant => {
                     let constant = next!(read_constant_value);

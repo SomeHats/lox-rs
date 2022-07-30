@@ -12,6 +12,11 @@ use thiserror::Error;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ConstantAddress(u8);
+impl ConstantAddress {
+    pub fn value(&self) -> u8 {
+        self.0
+    }
+}
 impl Display for ConstantAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "@{}", self.0)
@@ -21,6 +26,14 @@ impl Display for ConstantAddress {
 #[must_use]
 pub struct JumpPatchHandle(usize);
 impl Display for JumpPatchHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug)]
+pub struct LoopTarget(usize);
+impl Display for LoopTarget {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
@@ -40,6 +53,7 @@ pub enum OpCode {
     Jump,
     JumpIfTrue,
     JumpIfFalse,
+    Loop,
     Pop,
     Nil,
     Constant,
@@ -150,6 +164,11 @@ impl Chunk {
         self.write_u16(0, None);
         target
     }
+    pub fn write_loop_op(&mut self, target: LoopTarget, op_debug: OpDebug) {
+        let offset = (self.code.len() - target.0).try_into().unwrap();
+        self.write_u8(OpCode::Loop.into(), op_debug);
+        self.write_u16(offset, None);
+    }
     pub fn patch_jump_op_to_here(&mut self, jump_target: JumpPatchHandle) {
         let (target_idx, op_code) = self.read_op_code(jump_target.0).unwrap();
         let arg = match op_code {
@@ -212,6 +231,9 @@ impl Chunk {
             ConstantValue::String(name) => Ok((offset, name)),
             _ => Err(CodeReadError::InvalidGlobalName(offset)),
         }
+    }
+    pub fn get_loop_target(&self) -> LoopTarget {
+        LoopTarget(self.code.len())
     }
 }
 

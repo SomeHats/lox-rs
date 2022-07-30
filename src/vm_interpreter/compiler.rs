@@ -117,6 +117,7 @@ impl Compiler {
             Stmt::Expr(stmt) => self.compile_expr_stmt(stmt),
             Stmt::Block(stmt) => self.compile_block_stmt(stmt),
             Stmt::If(stmt) => self.compile_if_stmt(stmt),
+            Stmt::While(stmt) => self.compile_while_stmt(stmt),
             _ => unimplemented!("{:?}", stmt),
         }
     }
@@ -162,6 +163,23 @@ impl Compiler {
         }
 
         self.chunk.patch_jump_op_to_here(jump_to_after);
+    }
+    fn compile_while_stmt(&mut self, stmt: WhileStmt) {
+        let span = stmt.source_span();
+        let keyword_span = stmt.while_span;
+        let op_debug = OpDebug::new(keyword_span, span);
+
+        let loop_start = self.chunk.get_loop_target();
+        self.compile_expr(stmt.condition);
+        let jump_to_after = self
+            .chunk
+            .write_jump_op(OpCode::JumpIfFalse, op_debug.clone());
+        self.chunk.write_basic_op(OpCode::Pop, op_debug.clone());
+
+        self.compile_stmt(*stmt.body);
+        self.chunk.write_loop_op(loop_start, op_debug.clone());
+        self.chunk.patch_jump_op_to_here(jump_to_after);
+        self.chunk.write_basic_op(OpCode::Pop, op_debug);
     }
     fn compile_expr(&mut self, expr: Expr) {
         let span = expr.source_span();

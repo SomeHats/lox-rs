@@ -1,5 +1,6 @@
 use super::chunk::{Chunk, CodeReadError, ConstantValue, OpCode, OpDebug};
 use colored::{ColoredString, Colorize};
+use itertools::Itertools;
 use std::fmt::Write;
 
 const OP_CODE_WIDTH: usize = 15;
@@ -47,7 +48,7 @@ impl Chunk {
             | OpCode::GreaterThan
             | OpCode::GreaterThanOrEqualTo => {
                 print_line([
-                    (Some(format!("{:>4}", initial_offset).dimmed()), 4),
+                    self.prefix_data(initial_offset, offset),
                     (Some(" | ".into()), 3),
                     (Some(format!("{:?}", op_code).purple()), OP_CODE_WIDTH + 45),
                     (Some(source_info), 0),
@@ -58,7 +59,7 @@ impl Chunk {
                 offset = next_offset;
 
                 print_line([
-                    (Some(format!("{:>4}", initial_offset).dimmed()), 4),
+                    self.prefix_data(initial_offset, offset),
                     (Some(" | ".into()), 3),
                     (Some(format!("{:?}", op_code).purple()), OP_CODE_WIDTH),
                     (Some(format!(" +{}", arg).green()), 5),
@@ -70,14 +71,31 @@ impl Chunk {
                     (Some(source_info), 0),
                 ]);
             }
+            OpCode::Loop => {
+                let (next_offset, arg) = self.read_u16(offset)?;
+                offset = next_offset;
+
+                print_line([
+                    self.prefix_data(initial_offset, offset),
+                    (Some(" | ".into()), 3),
+                    (Some(format!("{:?}", op_code).purple()), OP_CODE_WIDTH),
+                    (Some(format!(" -{}", arg).green()), 5),
+                    (Some(" -> ".into()), 4),
+                    (
+                        Some(format!("{:<5}", initial_offset - usize::from(arg)).blue()),
+                        36,
+                    ),
+                    (Some(source_info), 0),
+                ]);
+            }
             OpCode::ReadLocal | OpCode::SetLocal => {
                 let (next_offset, local_index) = self.read_u8(offset)?;
                 offset = next_offset;
                 print_line([
-                    (Some(format!("{:>4}", initial_offset).dimmed()), 4),
+                    self.prefix_data(initial_offset, offset),
                     (Some(" | ".into()), 3),
                     (Some(format!("{:?}", op_code).purple()), OP_CODE_WIDTH),
-                    (Some(format!(" {}", local_index).green()), 40),
+                    (Some(format!(" {}", local_index).green()), 45),
                     (Some(source_info), 0),
                 ]);
             }
@@ -91,7 +109,7 @@ impl Chunk {
                     ConstantValue::String(value) => format!("\"{}\"", value),
                 };
                 print_line([
-                    (Some(format!("{:>4}", initial_offset).dimmed()), 4),
+                    self.prefix_data(initial_offset, offset),
                     (Some(" | ".into()), 3),
                     (Some(format!("{:?}", op_code).purple()), OP_CODE_WIDTH),
                     (Some(format!(" {:>5}", address).green()), 6),
@@ -103,6 +121,22 @@ impl Chunk {
         };
 
         Ok(offset)
+    }
+
+    fn prefix_data(
+        &self,
+        initial_offset: usize,
+        current_offset: usize,
+    ) -> (Option<ColoredString>, usize) {
+        let string = format!(
+            "{:>4}: {:<8}",
+            initial_offset,
+            (initial_offset..current_offset)
+                .into_iter()
+                .map(|offset| format!("{:02x}", self.read_u8(offset).unwrap().1))
+                .join(" ")
+        );
+        (Some(string.dimmed()), 14)
     }
 }
 
@@ -117,7 +151,7 @@ fn print_line<const N: usize>(parts: [(Option<ColoredString>, usize); N]) {
         )
         .unwrap();
     }
-    println!("{}", out.on_black());
+    println!("{}", out);
 }
 
 fn get_formatted_line(source: &str, op_debug: &OpDebug) -> String {

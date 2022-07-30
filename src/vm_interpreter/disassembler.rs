@@ -55,7 +55,7 @@ impl Chunk {
                     (Some(source_info), 0),
                 ]);
             }
-            OpCode::JumpIfFalse | OpCode::Jump => {
+            OpCode::Jump | OpCode::JumpIfTrue | OpCode::JumpIfFalse => {
                 let (next_offset, arg) = self.read_u16(offset)?;
                 offset = next_offset;
 
@@ -169,35 +169,26 @@ fn get_formatted_line(source: &str, op_debug: &OpDebug) -> String {
     }
 
     format!(
-        "{} {}{}{}",
+        "{} {}{}{}{}{}",
         format!("{:>3}:", line).dimmed(),
-        if outer_start_offset <= line_start_idx {
-            source[line_start_idx..inner_start_offset]
-                .trim_start_matches('\n')
-                .blue()
-                .to_string()
-        } else {
-            format!(
-                "{}{}",
-                &source[line_start_idx..outer_start_offset]
-                    .trim_start_matches('\n')
-                    .dimmed(),
-                &source[outer_start_offset..inner_start_offset]
-                    .blue()
-                    .to_string(),
-            )
-        },
-        &source[inner_start_offset..inner_end_offset].green().bold(),
-        if outer_end_offset >= line_end_idx {
-            source[inner_end_offset..line_end_idx].blue().to_string()
-        } else {
-            format!(
-                "{}{}",
-                &source[inner_end_offset..outer_end_offset]
-                    .blue()
-                    .to_string(),
-                &source[outer_end_offset..line_end_idx].dimmed().to_string(),
-            )
-        },
+        &source[line_start_idx..outer_start_offset.max(line_start_idx)]
+            .trim_matches('\n')
+            .dimmed(),
+        &source[outer_start_offset.max(line_start_idx)..inner_start_offset.max(line_start_idx)]
+            .trim_matches('\n')
+            .blue()
+            .to_string(),
+        &source[inner_start_offset.max(line_start_idx)..inner_end_offset.min(line_end_idx)]
+            .trim_matches('\n')
+            .green()
+            .bold(),
+        &source[inner_end_offset.min(line_end_idx)..outer_end_offset.min(line_end_idx)]
+            .trim_matches('\n')
+            .blue()
+            .to_string(),
+        &source[outer_end_offset.min(line_end_idx)..line_end_idx.min(line_end_idx)]
+            .trim_matches('\n')
+            .dimmed()
+            .to_string(),
     )
 }

@@ -18,6 +18,7 @@ impl Display for ConstantAddress {
     }
 }
 #[derive(Debug)]
+#[must_use]
 pub struct JumpPatchHandle(usize);
 impl Display for JumpPatchHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -37,6 +38,7 @@ pub enum ConstantValue {
 pub enum OpCode {
     Return,
     Jump,
+    JumpIfTrue,
     JumpIfFalse,
     Pop,
     Nil,
@@ -153,7 +155,9 @@ impl Chunk {
     pub fn patch_jump_op_to_here(&mut self, jump_target: JumpPatchHandle) {
         let (target_idx, op_code) = self.read_op_code(jump_target.0).unwrap();
         let arg = match op_code {
-            OpCode::JumpIfFalse | OpCode::Jump => self.code.len() - jump_target.0,
+            OpCode::Jump | OpCode::JumpIfTrue | OpCode::JumpIfFalse => {
+                self.code.len() - jump_target.0
+            }
             _ => panic!("Tried to patch a non-jump opcode"),
         };
 

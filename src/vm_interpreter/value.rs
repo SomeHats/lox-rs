@@ -121,10 +121,10 @@ impl Value {
             Self::String(_) => ValueType::String,
         }
     }
-    pub fn cast_boolean(self) -> bool {
+    pub fn cast_boolean(&self) -> bool {
         match self {
             Self::Nil => false,
-            Self::Boolean(value) => value,
+            Self::Boolean(value) => *value,
             _ => true,
         }
     }

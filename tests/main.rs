@@ -18,7 +18,7 @@ use regex::Regex;
 
 lazy_static! {
     static ref TREEWALK_IGNORE_PATTERN: Regex = Regex::new("test_fixtures/(limit)").unwrap();
-    static ref BYTECODE_IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((call|class|closure|constructor|field|for|function|if|inheritance|limit|logical_operator|method|regression|return|super|this|while)|(comments/(line_at_eof|unicode)|precedence|redefine_panic|operator/(equals_class|equals_method|not_class|not)|number/(nan_equality)|assignment/to_this|block/empty|variable/(early_bound|local_from_method|duplicate_parameter|unreached_undefined|collide_with_parameter)).lox$)").unwrap();
+    static ref BYTECODE_IGNORE_PATTERN: Regex = Regex::new("test_fixtures/((call|class|closure|constructor|field|for|function|inheritance|limit|method|regression|return|super|this|while)|(comments/(line_at_eof|unicode)|precedence|redefine_panic|operator/(equals_class|equals_method|not_class|not)|number/(nan_equality)|assignment/to_this|block/empty|variable/(early_bound|local_from_method|duplicate_parameter|unreached_undefined|collide_with_parameter)).lox$)").unwrap();
 }
 
 fn main() {

@@ -238,9 +238,36 @@ impl Compiler {
     }
     fn compile_binary_expr(&mut self, expr: BinaryExpr) {
         let outer_span = expr.source_span();
-        self.compile_expr(*expr.left);
-        self.compile_expr(*expr.right);
+
         let op_code = match expr.operator.inner() {
+            BinaryOperator::LogicalAnd => {
+                self.compile_expr(*expr.left);
+                let jump_to_after = self.chunk.write_jump_op(
+                    OpCode::JumpIfFalse,
+                    OpDebug::new(expr.operator.source_span(), outer_span),
+                );
+                self.chunk.write_basic_op(
+                    OpCode::Pop,
+                    OpDebug::new(expr.operator.source_span(), outer_span),
+                );
+                self.compile_expr(*expr.right);
+                self.chunk.patch_jump_op_to_here(jump_to_after);
+                return;
+            }
+            BinaryOperator::LogicalOr => {
+                self.compile_expr(*expr.left);
+                let jump_to_after = self.chunk.write_jump_op(
+                    OpCode::JumpIfTrue,
+                    OpDebug::new(expr.operator.source_span(), outer_span),
+                );
+                self.chunk.write_basic_op(
+                    OpCode::Pop,
+                    OpDebug::new(expr.operator.source_span(), outer_span),
+                );
+                self.compile_expr(*expr.right);
+                self.chunk.patch_jump_op_to_here(jump_to_after);
+                return;
+            }
             BinaryOperator::Plus => OpCode::Add,
             BinaryOperator::Minus => OpCode::Subtract,
             BinaryOperator::Multiply => OpCode::Multiply,
@@ -251,9 +278,11 @@ impl Compiler {
             BinaryOperator::LessThanOrEqualTo => OpCode::LessThanOrEqualTo,
             BinaryOperator::GreaterThan => OpCode::GreaterThan,
             BinaryOperator::GreaterThanOrEqualTo => OpCode::GreaterThanOrEqualTo,
-            BinaryOperator::LogicalAnd => OpCode::LogicalAnd,
-            BinaryOperator::LogicalOr => OpCode::LogicalOr,
         };
+
+        self.compile_expr(*expr.left);
+        self.compile_expr(*expr.right);
+
         self.chunk.write_basic_op(
             op_code,
             OpDebug::new(expr.operator.source_span(), outer_span),
@@ -267,6 +296,7 @@ impl Compiler {
         for _ in 0..locals_to_remove {
             self.chunk
                 .write_basic_op(OpCode::Pop, OpDebug::single(ending_span));
+            self.locals.pop();
         }
 
         self.scope_depth -= 1;

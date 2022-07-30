@@ -61,8 +61,6 @@ pub enum OpCode {
     LessThanOrEqualTo,
     GreaterThan,
     GreaterThanOrEqualTo,
-    LogicalAnd,
-    LogicalOr,
 }
 
 #[derive(Debug, Clone)]

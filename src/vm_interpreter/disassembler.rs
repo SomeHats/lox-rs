@@ -45,9 +45,7 @@ impl Chunk {
             | OpCode::LessThan
             | OpCode::LessThanOrEqualTo
             | OpCode::GreaterThan
-            | OpCode::GreaterThanOrEqualTo
-            | OpCode::LogicalAnd
-            | OpCode::LogicalOr => {
+            | OpCode::GreaterThanOrEqualTo => {
                 print_line([
                     (Some(format!("{:>4}", initial_offset).dimmed()), 4),
                     (Some(" | ".into()), 3),

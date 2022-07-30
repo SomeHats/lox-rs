@@ -316,18 +316,6 @@ impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
 
                     self.stack_push(lhs >= rhs);
                 }
-                OpCode::LogicalAnd => {
-                    let (_, rhs) = self.stack_pop()?;
-                    let (_, lhs) = self.stack_pop()?;
-
-                    self.stack_push(lhs.cast_boolean() && rhs.cast_boolean());
-                }
-                OpCode::LogicalOr => {
-                    let (_, rhs) = self.stack_pop()?;
-                    let (_, lhs) = self.stack_pop()?;
-
-                    self.stack_push(lhs.cast_boolean() || rhs.cast_boolean());
-                }
             };
 
             if cfg!(feature = "debug_stack") {

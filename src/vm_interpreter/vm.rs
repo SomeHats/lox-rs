@@ -113,7 +113,7 @@ impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
                 }
                 OpCode::ReadGlobal => {
                     let name = next!(read_global_name);
-                    let value = self.globals.get(&name).ok_or_else(|| {
+                    let value = self.globals.get(name).ok_or_else(|| {
                         InterpreterError::UndefinedVariable {
                             name: name.to_string(),
                             found_at: self.current_op_debug().inner,

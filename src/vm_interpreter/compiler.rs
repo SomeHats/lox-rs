@@ -116,6 +116,7 @@ impl Compiler {
             Stmt::Print(stmt) => self.compile_print_stmt(stmt),
             Stmt::Expr(stmt) => self.compile_expr_stmt(stmt),
             Stmt::Block(stmt) => self.compile_block_stmt(stmt),
+            Stmt::If(stmt) => self.compile_if_stmt(stmt),
             _ => unimplemented!("{:?}", stmt),
         }
     }
@@ -137,6 +138,30 @@ impl Compiler {
             self.compile_decl_or_stmt(stmt);
         }
         self.end_scope(stmt.close_span);
+    }
+    fn compile_if_stmt(&mut self, stmt: IfStmt) {
+        let span = stmt.source_span();
+        self.compile_expr(stmt.condition);
+        let jump_to_else = self
+            .chunk
+            .write_jump_op(OpCode::JumpIfFalse, OpDebug::new(stmt.if_span, span));
+
+        self.chunk
+            .write_basic_op(OpCode::Pop, OpDebug::new(stmt.if_span, span));
+        self.compile_stmt(*stmt.then_branch);
+        let jump_to_after = self
+            .chunk
+            .write_jump_op(OpCode::Jump, OpDebug::new(stmt.if_span, span));
+
+        self.chunk.patch_jump_op_to_here(jump_to_else);
+        self.chunk
+            .write_basic_op(OpCode::Pop, OpDebug::new(stmt.if_span, span));
+
+        if let Some(else_branch) = stmt.else_branch {
+            self.compile_stmt(*else_branch);
+        }
+
+        self.chunk.patch_jump_op_to_here(jump_to_after);
     }
     fn compile_expr(&mut self, expr: Expr) {
         let span = expr.source_span();
@@ -242,7 +267,6 @@ impl Compiler {
         for _ in 0..locals_to_remove {
             self.chunk
                 .write_basic_op(OpCode::Pop, OpDebug::single(ending_span));
-            let popped = self.locals.pop().unwrap();
         }
 
         self.scope_depth -= 1;

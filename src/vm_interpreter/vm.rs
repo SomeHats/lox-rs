@@ -85,6 +85,17 @@ impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
 
                     return Ok(value);
                 }
+                OpCode::Jump => {
+                    let offset = next!(read_u16);
+                    self.ip = self.ip_at_op_start + usize::from(offset);
+                }
+                OpCode::JumpIfFalse => {
+                    let offset = next!(read_u16);
+                    let (_, value) = self.stack_pop()?;
+                    if !value.cast_boolean() {
+                        self.ip = self.ip_at_op_start + usize::from(offset);
+                    }
+                }
                 OpCode::Nil => self.stack_push(Value::Nil),
                 OpCode::Constant => {
                     let constant = next!(read_constant_value);

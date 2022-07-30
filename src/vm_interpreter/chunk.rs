@@ -3,7 +3,11 @@ use crate::{SourceReference, SourceSpan};
 use miette::Diagnostic;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use ordered_float::OrderedFloat;
-use std::{collections::HashMap, convert::TryFrom, fmt::Display};
+use std::{
+    collections::HashMap,
+    convert::{TryFrom, TryInto},
+    fmt::Display,
+};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy)]
@@ -11,6 +15,13 @@ pub struct ConstantAddress(u8);
 impl Display for ConstantAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "@{}", self.0)
+    }
+}
+#[derive(Debug)]
+pub struct JumpPatchHandle(usize);
+impl Display for JumpPatchHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -25,6 +36,8 @@ pub enum ConstantValue {
 #[repr(u8)]
 pub enum OpCode {
     Return,
+    Jump,
+    JumpIfFalse,
     Pop,
     Nil,
     Constant,
@@ -105,26 +118,48 @@ impl Chunk {
                 address
             })
     }
-    fn write(&mut self, byte: u8, op_debug: impl Into<Option<OpDebug>>) {
+    fn write_u8(&mut self, byte: u8, op_debug: impl Into<Option<OpDebug>>) {
         self.code.push(byte);
         self.debug_data.push(op_debug.into());
     }
+    fn write_u16(&mut self, value: u16, op_debug: impl Into<Option<OpDebug>>) {
+        let [byte1, byte2] = u16_to_bytes(value);
+        self.write_u8(byte1, op_debug);
+        self.write_u8(byte2, None);
+    }
     pub fn write_basic_op(&mut self, op: OpCode, op_debug: OpDebug) {
-        self.write(op.into(), op_debug);
+        self.write_u8(op.into(), op_debug);
     }
     pub fn write_constant(&mut self, value: ConstantValue, op_debug: OpDebug) {
         let address = self.register_constant(value);
-        self.write(OpCode::Constant.into(), op_debug);
-        self.write(address.0, None);
+        self.write_u8(OpCode::Constant.into(), op_debug);
+        self.write_u8(address.0, None);
     }
     pub fn write_global_op(&mut self, op_code: OpCode, name: GcString, op_debug: OpDebug) {
         let address = self.register_constant(ConstantValue::String(name));
-        self.write(op_code.into(), op_debug);
-        self.write(address.0, None);
+        self.write_u8(op_code.into(), op_debug);
+        self.write_u8(address.0, None);
     }
     pub fn write_local_op(&mut self, op_code: OpCode, index: u8, op_debug: OpDebug) {
-        self.write(op_code.into(), op_debug);
-        self.write(index, None);
+        self.write_u8(op_code.into(), op_debug);
+        self.write_u8(index, None);
+    }
+    pub fn write_jump_op(&mut self, op_code: OpCode, op_debug: OpDebug) -> JumpPatchHandle {
+        let target = JumpPatchHandle(self.code.len());
+        self.write_u8(op_code.into(), op_debug);
+        self.write_u16(0, None);
+        target
+    }
+    pub fn patch_jump_op_to_here(&mut self, jump_target: JumpPatchHandle) {
+        let (target_idx, op_code) = self.read_op_code(jump_target.0).unwrap();
+        let arg = match op_code {
+            OpCode::JumpIfFalse | OpCode::Jump => self.code.len() - jump_target.0,
+            _ => panic!("Tried to patch a non-jump opcode"),
+        };
+
+        let [b1, b2] = u16_to_bytes(arg.try_into().expect("jump over too much code"));
+        self.code[target_idx] = b1;
+        self.code[target_idx + 1] = b2;
     }
 
     pub fn source(&self) -> &SourceReference {
@@ -139,6 +174,11 @@ impl Chunk {
     pub fn read_u8(&self, offset: usize) -> Result<(usize, u8), CodeReadError> {
         let byte = self.read_byte(offset)?;
         Ok((offset + 1, byte))
+    }
+    pub fn read_u16(&self, offset: usize) -> Result<(usize, u16), CodeReadError> {
+        let byte1 = self.read_byte(offset)?;
+        let byte2 = self.read_byte(offset + 1)?;
+        Ok((offset + 2, u16_from_bytes([byte1, byte2])))
     }
     pub fn read_op_debug(&self, offset: usize) -> Option<&OpDebug> {
         self.debug_data.get(offset)?.as_ref()
@@ -189,4 +229,23 @@ pub enum CodeReadError {
     InvalidConstantAddress(ConstantAddress),
     #[error("Invalid global name at index {0}")]
     InvalidGlobalName(usize),
+}
+
+fn u16_to_bytes(value: u16) -> [u8; 2] {
+    value.to_le_bytes()
+}
+fn u16_from_bytes(bytes: [u8; 2]) -> u16 {
+    u16::from_le_bytes(bytes)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn read_write_u16() {
+        for i in 0..=0xFFFF {
+            assert_eq!(i, u16_from_bytes(u16_to_bytes(i)));
+        }
+    }
 }

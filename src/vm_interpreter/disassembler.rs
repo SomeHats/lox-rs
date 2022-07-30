@@ -2,7 +2,7 @@ use super::chunk::{Chunk, CodeReadError, ConstantValue, OpCode, OpDebug};
 use colored::{ColoredString, Colorize};
 use std::fmt::Write;
 
-// const OP_CODE_WIDTH: usize = 12;
+const OP_CODE_WIDTH: usize = 15;
 
 impl Chunk {
     pub fn disassemble(&self, name: &str) {
@@ -51,7 +51,24 @@ impl Chunk {
                 print_line([
                     (Some(format!("{:>4}", initial_offset).dimmed()), 4),
                     (Some(" | ".into()), 3),
-                    (Some(format!("{:?}", op_code).purple()), 50),
+                    (Some(format!("{:?}", op_code).purple()), OP_CODE_WIDTH + 45),
+                    (Some(source_info), 0),
+                ]);
+            }
+            OpCode::JumpIfFalse | OpCode::Jump => {
+                let (next_offset, arg) = self.read_u16(offset)?;
+                offset = next_offset;
+
+                print_line([
+                    (Some(format!("{:>4}", initial_offset).dimmed()), 4),
+                    (Some(" | ".into()), 3),
+                    (Some(format!("{:?}", op_code).purple()), OP_CODE_WIDTH),
+                    (Some(format!(" +{}", arg).green()), 5),
+                    (Some(" -> ".into()), 4),
+                    (
+                        Some(format!("{:<5}", initial_offset + usize::from(arg)).blue()),
+                        36,
+                    ),
                     (Some(source_info), 0),
                 ]);
             }
@@ -61,7 +78,7 @@ impl Chunk {
                 print_line([
                     (Some(format!("{:>4}", initial_offset).dimmed()), 4),
                     (Some(" | ".into()), 3),
-                    (Some(format!("{:?}", op_code).purple()), 10),
+                    (Some(format!("{:?}", op_code).purple()), OP_CODE_WIDTH),
                     (Some(format!(" {}", local_index).green()), 40),
                     (Some(source_info), 0),
                 ]);
@@ -78,10 +95,10 @@ impl Chunk {
                 print_line([
                     (Some(format!("{:>4}", initial_offset).dimmed()), 4),
                     (Some(" | ".into()), 3),
-                    (Some(format!("{:?}", op_code).purple()), 10),
-                    (Some(format!(" {:>4}", address).green()), 5),
+                    (Some(format!("{:?}", op_code).purple()), OP_CODE_WIDTH),
+                    (Some(format!(" {:>5}", address).green()), 6),
                     (Some(" = ".into()), 3),
-                    (Some(value_str.blue()), 32),
+                    (Some(value_str.blue()), 36),
                     (Some(source_info), 0),
                 ]);
             }

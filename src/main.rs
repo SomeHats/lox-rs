@@ -1,4 +1,7 @@
-use std::io::{stdout, Write};
+use std::{
+    io::{stdout, Write},
+    path::PathBuf,
+};
 
 use miette::{Diagnostic, IntoDiagnostic, Report, Result};
 use rustyline::error::ReadlineError;
@@ -19,18 +22,38 @@ fn main() -> Result<()> {
             Some(arg.to_string())
         }
     });
+    if let Some(file) = file {
+        if !use_old {
+            let should_disassemble =
+                consume_arg(&mut args, |arg| (arg == "--disassemble").then_some(true))
+                    .unwrap_or(false);
+
+            if should_disassemble {
+                finish_args(args);
+                let (path, source) = read_source_file(&file)?;
+                let program = parse_or_exit(path, &source, ParserOpts::default());
+                let chunk = Compiler::compile(program)?;
+                chunk.disassemble(&file);
+                return Ok(());
+            }
+        }
+
+        finish_args(args);
+        run_file(file, use_old)?;
+    } else {
+        finish_args(args);
+        run_prompt(use_old)?;
+    }
+
+    Ok(())
+}
+
+fn finish_args(args: Vec<String>) {
     if !args.is_empty() {
         eprintln!("Unrecognized arguments: {:?}", args);
         eprintln!("Usage: lox-rs [--old] [file]");
         std::process::exit(1);
     }
-    if let Some(file) = file {
-        run_file(file, use_old)?;
-    } else {
-        run_prompt(use_old)?;
-    }
-
-    Ok(())
 }
 
 fn consume_arg<T, F: Fn(&str) -> Option<T>>(args: &mut Vec<String>, predicate: F) -> Option<T> {
@@ -80,6 +103,15 @@ fn parse_and_report_errors(
     (program, did_have_scanner_error || did_have_parser_error)
 }
 
+fn parse_or_exit(file_name: PathBuf, source: &str, parser_opts: ParserOpts) -> Program {
+    let (program, did_have_error) =
+        parse_and_report_errors(file_name.to_str().unwrap_or("<stdin>"), source, parser_opts);
+    if did_have_error {
+        std::process::exit(1);
+    }
+    program
+}
+
 fn prepare_interpreter<W: Write>(
     interpreter: &mut Interpreter<W>,
     program: Program,
@@ -101,8 +133,7 @@ fn prepare_interpreter<W: Write>(
 }
 
 fn run_file(file_name: String, use_old: bool) -> Result<()> {
-    let path = std::fs::canonicalize(file_name).into_diagnostic()?;
-    let source = std::fs::read_to_string(&path).into_diagnostic()?;
+    let (path, source) = read_source_file(&file_name)?;
     let mut stdout = stdout();
 
     let (program, did_have_error) =
@@ -127,6 +158,12 @@ fn run_file(file_name: String, use_old: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn read_source_file(file_name: &str) -> Result<(std::path::PathBuf, String), Report> {
+    let path = std::fs::canonicalize(file_name).into_diagnostic()?;
+    let source = std::fs::read_to_string(&path).into_diagnostic()?;
+    Ok((path, source))
 }
 
 fn repl_loop<F: FnMut(String, String) -> Option<Result<String, Report>>>(

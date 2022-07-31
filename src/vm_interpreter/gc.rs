@@ -2,6 +2,7 @@ use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
     fmt::{Debug, Display},
+    hash::Hash,
     ops::Deref,
     ptr,
 };
@@ -14,6 +15,7 @@ pub trait Trace: Debug + 'static {
     fn unroot(&self);
     fn finalize(&self) {}
 }
+#[macro_export]
 macro_rules! empty_trace_impl {
     () => {
         #[inline]
@@ -27,7 +29,6 @@ macro_rules! empty_trace_impl {
 
 struct GcState {
     boxes: Cell<Option<GcBoxPtr>>,
-    strings: RefCell<HashMap<String, ptr::NonNull<GcBox<GcStringInner>>>>,
 }
 impl GcState {
     fn iter_boxes(&self) -> impl Iterator<Item = &GcBox<dyn Trace>> {
@@ -44,7 +45,7 @@ impl GcState {
     }
 }
 thread_local! {
-    static GC_STATE: GcState = GcState { boxes: Cell::new(None), strings: RefCell::new(HashMap::new()) };
+    static GC_STATE: GcState = GcState { boxes: Cell::new(None) };
 }
 
 type GcBoxPtr = ptr::NonNull<GcBox<dyn Trace>>;
@@ -116,7 +117,7 @@ pub struct Gc<T: Trace> {
     ptr: ptr::NonNull<GcBox<T>>,
 }
 impl<T: Trace> Gc<T> {
-    pub fn _new(value: T) -> Self {
+    pub fn new(value: T) -> Self {
         let gc = Gc {
             ptr: GcBox::new(value),
         };
@@ -126,6 +127,12 @@ impl<T: Trace> Gc<T> {
     }
     fn inner(&self) -> &GcBox<T> {
         unsafe { self.ptr.as_ref() }
+    }
+    pub fn ref_eq(&self, other: &Self) -> bool {
+        ptr::eq(self.ptr.as_ptr(), other.ptr.as_ptr())
+    }
+    pub fn hash_ref<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.ptr.hash(state)
     }
 }
 impl<T: Trace> Trace for Gc<T> {
@@ -166,88 +173,9 @@ impl<T: Trace> Debug for Gc<T> {
         f.debug_tuple("Gc").field(self.as_ref()).finish()
     }
 }
-
-#[derive(Debug)]
-struct GcStringInner(String);
-impl Trace for GcStringInner {
-    empty_trace_impl!();
-
-    fn finalize(&self) {
-        GC_STATE.with(|state| {
-            let mut strings = state.strings.borrow_mut();
-            strings.remove(&self.0);
-        });
-    }
-}
-
-#[derive(PartialEq, Eq, Hash)]
-pub struct GcString {
-    ptr: ptr::NonNull<GcBox<GcStringInner>>,
-}
-impl GcString {
-    pub fn new(value: String) -> Self {
-        let ptr = GC_STATE.with(|state| match state.strings.borrow_mut().entry(value) {
-            std::collections::hash_map::Entry::Occupied(entry) => {
-                let ptr = entry.get();
-                unsafe {
-                    ptr.as_ref().root();
-                }
-                *ptr
-            }
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                if cfg!(feature = "debug_gc_roots") {
-                    println!("[gc] interning string {:?}", entry.key());
-                }
-                let ptr = GcBox::new(GcStringInner(entry.key().clone()));
-                entry.insert(ptr);
-                ptr
-            }
-        });
-        GcString { ptr }
-    }
-    fn inner(&self) -> &GcBox<GcStringInner> {
-        unsafe { self.ptr.as_ref() }
-    }
-    fn as_str(&self) -> &str {
-        self.inner().value().0.as_str()
-    }
-}
-impl Trace for GcString {
-    fn trace(&self) {
-        self.inner().trace();
-    }
-    fn root(&self) {
-        self.inner().root();
-    }
-    fn unroot(&self) {
-        self.inner().unroot();
-    }
-}
-impl Drop for GcString {
-    fn drop(&mut self) {
-        self.unroot();
-    }
-}
-impl Clone for GcString {
-    fn clone(&self) -> Self {
-        self.root();
-        Self { ptr: self.ptr }
-    }
-}
-impl Deref for GcString {
-    type Target = str;
-    fn deref(&self) -> &str {
-        self.as_str()
-    }
-}
-impl Debug for GcString {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.as_str())
-    }
-}
-impl Display for GcString {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
+impl<T: Trace + Hash> Hash for Gc<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.as_ref().hash(state)
     }
 }
 
@@ -314,6 +242,40 @@ empty_trace_impl_for![
     std::sync::atomic::AtomicI64,
     std::sync::atomic::AtomicU64
 ];
+
+#[macro_export]
+macro_rules! custom_trace {
+    (|$this:ident| $body:expr) => {
+        #[inline]
+        fn trace(&self) {
+            fn mark<T: $crate::vm_interpreter::gc::Trace + ?Sized>(it: &T) {
+                $crate::vm_interpreter::gc::Trace::trace(it);
+            }
+            (|$this: &Self| $body)(self);
+        }
+        #[inline]
+        fn root(&self) {
+            fn mark<T: $crate::vm_interpreter::gc::Trace + ?Sized>(it: &T) {
+                $crate::vm_interpreter::gc::Trace::root(it);
+            }
+            (|$this: &Self| $body)(self);
+        }
+        #[inline]
+        fn unroot(&self) {
+            fn mark<T: $crate::vm_interpreter::gc::Trace + ?Sized>(it: &T) {
+                $crate::vm_interpreter::gc::Trace::unroot(it);
+            }
+            (|$this: &Self| $body)(self);
+        }
+    };
+}
+impl<T: Trace> Trace for Vec<T> {
+    custom_trace!(|this| {
+        for it in this.iter() {
+            mark(it);
+        }
+    });
+}
 
 pub mod gc_stats {
     use super::*;

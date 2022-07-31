@@ -1,7 +1,9 @@
 mod chunk;
 mod compiler;
 pub mod disassembler;
-mod gc;
+pub mod gc;
+mod object;
+mod string_interner;
 mod value;
 mod vm;
 

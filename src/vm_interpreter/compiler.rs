@@ -1,6 +1,6 @@
 use super::{
     chunk::{Chunk, ConstantValue, OpCode, OpDebug},
-    string_interner::InternedString,
+    gc::GcString,
 };
 use crate::{ast::*, SourceReference, SourceSpan};
 use miette::Diagnostic;
@@ -37,15 +37,8 @@ pub struct CompilerErrors {
     pub errors: Vec<CompilerError>,
 }
 
-#[derive(Debug)]
-enum ChunkType {
-    Script,
-    Function,
-}
-
 pub struct Compiler {
     chunk: Chunk,
-    // current_function:
     source_reference: SourceReference,
     locals: Vec<Local>,
     scope_depth: usize,
@@ -114,7 +107,7 @@ impl Compiler {
         );
         self.chunk.write_global_op(
             OpCode::DefineGlobal,
-            InternedString::new(decl.identifier.name),
+            GcString::new(decl.identifier.name),
             debug,
         )
     }
@@ -194,7 +187,7 @@ impl Compiler {
             Expr::Literal(expr) => {
                 match expr.value {
                     LiteralValue::String(value) => self.chunk.write_constant(
-                        ConstantValue::String(InternedString::new(value)),
+                        ConstantValue::String(GcString::new(value)),
                         OpDebug::single(span),
                     ),
                     LiteralValue::Number(value) => self
@@ -221,7 +214,7 @@ impl Compiler {
                 } else {
                     self.chunk.write_global_op(
                         OpCode::ReadGlobal,
-                        InternedString::new(expr.identifier.name),
+                        GcString::new(expr.identifier.name),
                         OpDebug::single(span),
                     );
                 }
@@ -239,7 +232,7 @@ impl Compiler {
                     } else {
                         self.chunk.write_global_op(
                             OpCode::SetGlobal,
-                            InternedString::new(target.identifier.name),
+                            GcString::new(target.identifier.name),
                             OpDebug::new(id_span, span),
                         );
                     }

@@ -1,3 +1,4 @@
+use super::gc::GcString;
 use crate::{SourceReference, SourceSpan};
 use miette::Diagnostic;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -8,8 +9,6 @@ use std::{
     fmt::Display,
 };
 use thiserror::Error;
-
-use super::string_interner::InternedString;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ConstantAddress(u8);
@@ -44,7 +43,7 @@ impl Display for LoopTarget {
 pub enum ConstantValue {
     Number(OrderedFloat<f64>),
     Boolean(bool),
-    String(InternedString),
+    String(GcString),
 }
 
 #[derive(Debug, IntoPrimitive, TryFromPrimitive, Clone, Copy)]
@@ -150,7 +149,7 @@ impl Chunk {
         self.write_u8(OpCode::Constant.into(), op_debug);
         self.write_u8(address.0, None);
     }
-    pub fn write_global_op(&mut self, op_code: OpCode, name: InternedString, op_debug: OpDebug) {
+    pub fn write_global_op(&mut self, op_code: OpCode, name: GcString, op_debug: OpDebug) {
         let address = self.register_constant(ConstantValue::String(name));
         self.write_u8(op_code.into(), op_debug);
         self.write_u8(address.0, None);
@@ -226,10 +225,7 @@ impl Chunk {
         let (offset, address) = self.read_constant_address(offset)?;
         Ok((offset, self.get_constant_value(address)?))
     }
-    pub fn read_global_name(
-        &self,
-        offset: usize,
-    ) -> Result<(usize, &InternedString), CodeReadError> {
+    pub fn read_global_name(&self, offset: usize) -> Result<(usize, &GcString), CodeReadError> {
         let (offset, name) = self.read_constant_value(offset)?;
         match name {
             ConstantValue::String(name) => Ok((offset, name)),

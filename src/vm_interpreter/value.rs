@@ -1,9 +1,6 @@
-use crate::custom_trace;
-
 use super::{
     chunk::ConstantValue,
-    gc::{Gc, Trace},
-    object::Object,
+    gc::{GcString, Trace},
 };
 use itertools::Itertools;
 use ordered_float::OrderedFloat;
@@ -14,15 +11,29 @@ pub enum Value {
     Nil,
     Number(f64),
     Boolean(bool),
-    Object(Gc<Object>),
+    String(GcString),
 }
 impl Trace for Value {
-    custom_trace!(|this| {
-        match this {
+    fn trace(&self) {
+        match self {
             Value::Nil | Value::Number(_) | Value::Boolean(_) => (),
-            Value::Object(object) => mark(object),
+            Value::String(s) => s.trace(),
         }
-    });
+    }
+
+    fn root(&self) {
+        match self {
+            Value::Nil | Value::Number(_) | Value::Boolean(_) => (),
+            Value::String(s) => s.root(),
+        }
+    }
+
+    fn unroot(&self) {
+        match self {
+            Value::Nil | Value::Number(_) | Value::Boolean(_) => (),
+            Value::String(s) => s.unroot(),
+        }
+    }
 }
 impl From<f64> for Value {
     fn from(value: f64) -> Self {
@@ -44,7 +55,7 @@ impl From<()> for Value {
         Self::Nil
     }
 }
-impl From<Object> for Value {
+impl From<GcString> for Value {
     fn from(value: GcString) -> Self {
         Self::String(value)
     }

@@ -1,5 +1,8 @@
+use crate::custom_trace_impl;
+
 use super::{
     chunk::ConstantValue,
+    function::FunctionObj,
     gc::{GcString, Trace},
 };
 use itertools::Itertools;
@@ -12,28 +15,14 @@ pub enum Value {
     Number(f64),
     Boolean(bool),
     String(GcString),
+    Function(FunctionObj),
 }
 impl Trace for Value {
-    fn trace(&self) {
-        match self {
-            Value::Nil | Value::Number(_) | Value::Boolean(_) => (),
-            Value::String(s) => s.trace(),
-        }
-    }
-
-    fn root(&self) {
-        match self {
-            Value::Nil | Value::Number(_) | Value::Boolean(_) => (),
-            Value::String(s) => s.root(),
-        }
-    }
-
-    fn unroot(&self) {
-        match self {
-            Value::Nil | Value::Number(_) | Value::Boolean(_) => (),
-            Value::String(s) => s.unroot(),
-        }
-    }
+    custom_trace_impl!(|value| match value {
+        Value::Nil | Value::Number(_) | Value::Boolean(_) => (),
+        Value::String(value) => mark(value),
+        Value::Function(value) => mark(value),
+    });
 }
 impl From<f64> for Value {
     fn from(value: f64) -> Self {
@@ -60,6 +49,11 @@ impl From<GcString> for Value {
         Self::String(value)
     }
 }
+impl From<FunctionObj> for Value {
+    fn from(value: FunctionObj) -> Self {
+        Self::Function(value)
+    }
+}
 impl From<ConstantValue> for Value {
     fn from(value: ConstantValue) -> Self {
         match value {
@@ -72,10 +66,8 @@ impl From<ConstantValue> for Value {
 impl Debug for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Value::Nil => write!(f, "nil"),
-            Value::Number(value) => write!(f, "{}", value),
-            Value::Boolean(value) => write!(f, "{}", value),
             Value::String(value) => write!(f, "\"{}\"", value),
+            value => write!(f, "{}", value),
         }
     }
 }
@@ -86,6 +78,7 @@ impl Display for Value {
             Value::Number(value) => write!(f, "{}", value),
             Value::Boolean(value) => write!(f, "{}", value),
             Value::String(value) => write!(f, "{}", value),
+            Value::Function(value) => write!(f, "fun {}() {{ ... }}", value.name()),
         }
     }
 }
@@ -96,6 +89,7 @@ impl PartialEq for Value {
             (Value::Number(a), Value::Number(b)) => a == b,
             (Value::Boolean(a), Value::Boolean(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
+            (Value::Function(a), Value::Function(b)) => a == b,
             _ => false,
         }
     }
@@ -119,6 +113,7 @@ impl Value {
             Self::Number(_) => ValueType::Number,
             Self::Boolean(_) => ValueType::Boolean,
             Self::String(_) => ValueType::String,
+            Self::Function(_) => ValueType::Function,
         }
     }
     pub fn cast_boolean(&self) -> bool {

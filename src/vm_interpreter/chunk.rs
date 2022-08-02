@@ -1,5 +1,5 @@
-use super::gc::GcString;
-use crate::{SourceReference, SourceSpan};
+use super::gc::{GcString, Trace};
+use crate::{custom_trace_impl, SourceReference, SourceSpan};
 use miette::Diagnostic;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use ordered_float::OrderedFloat;
@@ -44,6 +44,13 @@ pub enum ConstantValue {
     Number(OrderedFloat<f64>),
     Boolean(bool),
     String(GcString),
+}
+impl Trace for ConstantValue {
+    custom_trace_impl!(|value| match value {
+        ConstantValue::Boolean(value) => mark(value),
+        ConstantValue::Number(value) => mark(&value.0),
+        ConstantValue::String(value) => mark(value),
+    });
 }
 
 #[derive(Debug, IntoPrimitive, TryFromPrimitive, Clone, Copy)]
@@ -235,6 +242,11 @@ impl Chunk {
     pub fn get_loop_target(&self) -> LoopTarget {
         LoopTarget(self.code.len())
     }
+}
+impl Trace for Chunk {
+    custom_trace_impl!(|this| {
+        mark(&this.constants);
+    });
 }
 
 #[derive(Debug)]

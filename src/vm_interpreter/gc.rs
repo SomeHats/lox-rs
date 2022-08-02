@@ -14,6 +14,7 @@ pub trait Trace: Debug + 'static {
     fn unroot(&self);
     fn finalize(&self) {}
 }
+#[macro_export]
 macro_rules! empty_trace_impl {
     () => {
         #[inline]
@@ -22,6 +23,32 @@ macro_rules! empty_trace_impl {
         fn root(&self) {}
         #[inline]
         fn unroot(&self) {}
+    };
+}
+#[macro_export]
+macro_rules! custom_trace_impl {
+    (|$this:ident| $body:expr) => {
+        #[inline]
+        fn trace(&self) {
+            fn mark<T: $crate::vm_interpreter::gc::Trace + ?Sized>(it: &T) {
+                $crate::vm_interpreter::gc::Trace::trace(it);
+            }
+            (|$this: &Self| $body)(self);
+        }
+        #[inline]
+        fn root(&self) {
+            fn mark<T: $crate::vm_interpreter::gc::Trace + ?Sized>(it: &T) {
+                $crate::vm_interpreter::gc::Trace::root(it);
+            }
+            (|$this: &Self| $body)(self);
+        }
+        #[inline]
+        fn unroot(&self) {
+            fn mark<T: $crate::vm_interpreter::gc::Trace + ?Sized>(it: &T) {
+                $crate::vm_interpreter::gc::Trace::unroot(it);
+            }
+            (|$this: &Self| $body)(self);
+        }
     };
 }
 
@@ -116,7 +143,7 @@ pub struct Gc<T: Trace> {
     ptr: ptr::NonNull<GcBox<T>>,
 }
 impl<T: Trace> Gc<T> {
-    pub fn _new(value: T) -> Self {
+    pub fn new(value: T) -> Self {
         let gc = Gc {
             ptr: GcBox::new(value),
         };
@@ -126,6 +153,9 @@ impl<T: Trace> Gc<T> {
     }
     fn inner(&self) -> &GcBox<T> {
         unsafe { self.ptr.as_ref() }
+    }
+    pub fn ref_eq(&self, other: &Self) -> bool {
+        ptr::eq(self.ptr.as_ptr(), other.ptr.as_ptr())
     }
 }
 impl<T: Trace> Trace for Gc<T> {
@@ -214,13 +244,15 @@ impl GcString {
 }
 impl Trace for GcString {
     fn trace(&self) {
-        self.inner().trace();
+        self.inner().trace()
     }
+
     fn root(&self) {
-        self.inner().root();
+        self.inner().root()
     }
+
     fn unroot(&self) {
-        self.inner().unroot();
+        self.inner().unroot()
     }
 }
 impl Drop for GcString {
@@ -314,6 +346,14 @@ empty_trace_impl_for![
     std::sync::atomic::AtomicI64,
     std::sync::atomic::AtomicU64
 ];
+
+impl<T: Trace> Trace for Vec<T> {
+    custom_trace_impl!(|this| {
+        for item in this {
+            mark(item);
+        }
+    });
+}
 
 pub mod gc_stats {
     use super::*;

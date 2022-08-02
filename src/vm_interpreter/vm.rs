@@ -1,9 +1,10 @@
 use super::{
     chunk::{Chunk, CodeReadError, ConstantValue, OpCode, OpDebug},
+    function::FunctionObj,
     gc::GcString,
     value::{Value, ValueDescriptor, ValueType},
 };
-use crate::{SourceReference, SourceSpan};
+use crate::{fixed_arr::FixedArr, vm_interpreter::disassembler, SourceReference, SourceSpan};
 use itertools::Itertools;
 use miette::Diagnostic;
 use std::{collections::HashMap, io::Write, mem::replace};
@@ -45,9 +46,11 @@ pub struct Vm<'a, Stdout: Write> {
     last_pushed: Value,
     stdout: &'a mut Stdout,
     globals: HashMap<GcString, Value>,
+    call_frames: FixedArr<CallFrame, 255>,
 }
 impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
     pub fn new(stdout: &'vm mut Stdout) -> Self {
+        const INIT: Option<CallFrame> = None;
         Self {
             current_chunk: None,
             ip: 0,
@@ -56,6 +59,7 @@ impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
             last_pushed: Value::Nil,
             stdout,
             globals: HashMap::new(),
+            call_frames: FixedArr::new(),
         }
     }
     pub fn run(&mut self, chunk: Chunk) -> Result<Value, InterpreterError> {
@@ -378,4 +382,11 @@ impl<'vm, Stdout: Write> Vm<'vm, Stdout> {
             source_code: self.current_chunk().source().clone(),
         }
     }
+}
+
+#[derive(Debug)]
+struct CallFrame {
+    fun: FunctionObj,
+    ip: usize,
+    stack_offset: usize,
 }

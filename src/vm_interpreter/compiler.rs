@@ -1,8 +1,9 @@
 use super::{
     chunk::{Chunk, ConstantValue, OpCode, OpDebug},
+    function::{FunctionBuider, FunctionObj},
     gc::GcString,
 };
-use crate::{ast::*, SourceReference, SourceSpan};
+use crate::{ast::*, side_table::UniqueId, SourceReference, SourceSpan};
 use miette::Diagnostic;
 use std::convert::TryFrom;
 use thiserror::Error;
@@ -38,23 +39,27 @@ pub struct CompilerErrors {
 }
 
 pub struct Compiler {
-    chunk: Chunk,
+    builder: FunctionBuider,
     source_reference: SourceReference,
     locals: Vec<Local>,
     scope_depth: usize,
     errors: Vec<CompilerError>,
 }
 impl Compiler {
-    pub fn compile(
+    pub fn compile_program(
         Program {
             statements,
             source_reference,
         }: Program,
-    ) -> Result<Chunk, CompilerErrors> {
+    ) -> Result<FunctionObj, CompilerErrors> {
         let mut compiler = Self {
-            chunk: Chunk::new(source_reference.clone()),
+            builder: FunctionBuider::new_script(source_reference.clone()),
             source_reference,
-            locals: Vec::new(),
+            locals: vec![Local::new(Identifier {
+                source_span: 0.into(),
+                name: "".to_string(),
+                id: UniqueId::new(),
+            })],
             scope_depth: 0,
             errors: Vec::new(),
         };
@@ -64,7 +69,7 @@ impl Compiler {
         }
 
         if compiler.errors.is_empty() {
-            Ok(compiler.chunk)
+            Ok(compiler.builder.build())
         } else {
             Err(CompilerErrors {
                 errors: compiler.errors,
@@ -92,7 +97,8 @@ impl Compiler {
         if let Some(initializer) = decl.initializer {
             self.compile_expr(initializer);
         } else {
-            self.chunk
+            self.builder
+                .chunk_mut()
                 .write_basic_op(OpCode::Nil, OpDebug::single(decl.source_span()));
         }
 
@@ -105,7 +111,7 @@ impl Compiler {
             SourceSpan::range(decl.var_span.start(), decl.identifier.source_span().end()),
             span,
         );
-        self.chunk.write_global_op(
+        self.builder.chunk_mut().write_global_op(
             OpCode::DefineGlobal,
             GcString::new(decl.identifier.name),
             debug,
@@ -124,13 +130,15 @@ impl Compiler {
     fn compile_print_stmt(&mut self, stmt: PrintStmt) {
         let span = stmt.source_span();
         self.compile_expr(stmt.expression);
-        self.chunk
+        self.builder
+            .chunk_mut()
             .write_basic_op(OpCode::Print, OpDebug::new(stmt.print_span, span));
     }
     fn compile_expr_stmt(&mut self, stmt: ExprStmt) {
         let span = stmt.source_span();
         self.compile_expr(stmt.expression);
-        self.chunk
+        self.builder
+            .chunk_mut()
             .write_basic_op(OpCode::Pop, OpDebug::single(span));
     }
     fn compile_block_stmt(&mut self, stmt: BlockStmt) {
@@ -144,60 +152,78 @@ impl Compiler {
         let span = stmt.source_span();
         self.compile_expr(stmt.condition);
         let jump_to_else = self
-            .chunk
+            .builder
+            .chunk_mut()
             .write_jump_op(OpCode::JumpIfFalse, OpDebug::new(stmt.if_span, span));
 
-        self.chunk
+        self.builder
+            .chunk_mut()
             .write_basic_op(OpCode::Pop, OpDebug::new(stmt.if_span, span));
         self.compile_stmt(*stmt.then_branch);
         let jump_to_after = self
-            .chunk
+            .builder
+            .chunk_mut()
             .write_jump_op(OpCode::Jump, OpDebug::new(stmt.if_span, span));
 
-        self.chunk.patch_jump_op_to_here(jump_to_else);
-        self.chunk
+        self.builder.chunk_mut().patch_jump_op_to_here(jump_to_else);
+        self.builder
+            .chunk_mut()
             .write_basic_op(OpCode::Pop, OpDebug::new(stmt.if_span, span));
 
         if let Some(else_branch) = stmt.else_branch {
             self.compile_stmt(*else_branch);
         }
 
-        self.chunk.patch_jump_op_to_here(jump_to_after);
+        self.builder
+            .chunk_mut()
+            .patch_jump_op_to_here(jump_to_after);
     }
     fn compile_while_stmt(&mut self, stmt: WhileStmt) {
         let span = stmt.source_span();
         let keyword_span = stmt.while_span;
         let op_debug = OpDebug::new(keyword_span, span);
 
-        let loop_start = self.chunk.get_loop_target();
+        let loop_start = self.builder.chunk_mut().get_loop_target();
         self.compile_expr(stmt.condition);
         let jump_to_after = self
-            .chunk
+            .builder
+            .chunk_mut()
             .write_jump_op(OpCode::JumpIfFalse, op_debug.clone());
-        self.chunk.write_basic_op(OpCode::Pop, op_debug.clone());
+        self.builder
+            .chunk_mut()
+            .write_basic_op(OpCode::Pop, op_debug.clone());
 
         self.compile_stmt(*stmt.body);
-        self.chunk.write_loop_op(loop_start, op_debug.clone());
-        self.chunk.patch_jump_op_to_here(jump_to_after);
-        self.chunk.write_basic_op(OpCode::Pop, op_debug);
+        self.builder
+            .chunk_mut()
+            .write_loop_op(loop_start, op_debug.clone());
+        self.builder
+            .chunk_mut()
+            .patch_jump_op_to_here(jump_to_after);
+        self.builder
+            .chunk_mut()
+            .write_basic_op(OpCode::Pop, op_debug);
     }
     fn compile_expr(&mut self, expr: Expr) {
         let span = expr.source_span();
         match expr {
             Expr::Literal(expr) => {
                 match expr.value {
-                    LiteralValue::String(value) => self.chunk.write_constant(
+                    LiteralValue::String(value) => self.builder.chunk_mut().write_constant(
                         ConstantValue::String(GcString::new(value)),
                         OpDebug::single(span),
                     ),
                     LiteralValue::Number(value) => self
-                        .chunk
+                        .builder
+                        .chunk_mut()
                         .write_constant(ConstantValue::Number(value.into()), OpDebug::single(span)),
                     LiteralValue::Boolean(value) => self
-                        .chunk
+                        .builder
+                        .chunk_mut()
                         .write_constant(ConstantValue::Boolean(value), OpDebug::single(span)),
                     LiteralValue::Nil => self
-                        .chunk
+                        .builder
+                        .chunk_mut()
                         .write_basic_op(OpCode::Nil, OpDebug::single(span)),
                 };
             }
@@ -206,13 +232,13 @@ impl Compiler {
             Expr::Grouping(expr) => self.compile_expr(*expr.expr),
             Expr::Variable(expr) => {
                 if let Some((index, _)) = self.resolve_variable(&expr.identifier) {
-                    self.chunk.write_local_op(
+                    self.builder.chunk_mut().write_local_op(
                         OpCode::ReadLocal,
                         u8::try_from(index).unwrap(),
                         OpDebug::single(span),
                     );
                 } else {
-                    self.chunk.write_global_op(
+                    self.builder.chunk_mut().write_global_op(
                         OpCode::ReadGlobal,
                         GcString::new(expr.identifier.name),
                         OpDebug::single(span),
@@ -224,13 +250,13 @@ impl Compiler {
                     self.compile_expr(*expr.value);
                     let id_span = target.identifier.source_span();
                     if let Some((index, _)) = self.resolve_variable(&target.identifier) {
-                        self.chunk.write_local_op(
+                        self.builder.chunk_mut().write_local_op(
                             OpCode::SetLocal,
                             u8::try_from(index).unwrap(),
                             OpDebug::new(id_span, span),
                         )
                     } else {
-                        self.chunk.write_global_op(
+                        self.builder.chunk_mut().write_global_op(
                             OpCode::SetGlobal,
                             GcString::new(target.identifier.name),
                             OpDebug::new(id_span, span),
@@ -249,7 +275,7 @@ impl Compiler {
             UnaryOperator::Minus => OpCode::Negate,
             UnaryOperator::Not => OpCode::Not,
         };
-        self.chunk.write_basic_op(
+        self.builder.chunk_mut().write_basic_op(
             op_code,
             OpDebug::new(expr.operator.source_span(), outer_span),
         );
@@ -260,30 +286,34 @@ impl Compiler {
         let op_code = match expr.operator.inner() {
             BinaryOperator::LogicalAnd => {
                 self.compile_expr(*expr.left);
-                let jump_to_after = self.chunk.write_jump_op(
+                let jump_to_after = self.builder.chunk_mut().write_jump_op(
                     OpCode::JumpIfFalse,
                     OpDebug::new(expr.operator.source_span(), outer_span),
                 );
-                self.chunk.write_basic_op(
+                self.builder.chunk_mut().write_basic_op(
                     OpCode::Pop,
                     OpDebug::new(expr.operator.source_span(), outer_span),
                 );
                 self.compile_expr(*expr.right);
-                self.chunk.patch_jump_op_to_here(jump_to_after);
+                self.builder
+                    .chunk_mut()
+                    .patch_jump_op_to_here(jump_to_after);
                 return;
             }
             BinaryOperator::LogicalOr => {
                 self.compile_expr(*expr.left);
-                let jump_to_after = self.chunk.write_jump_op(
+                let jump_to_after = self.builder.chunk_mut().write_jump_op(
                     OpCode::JumpIfTrue,
                     OpDebug::new(expr.operator.source_span(), outer_span),
                 );
-                self.chunk.write_basic_op(
+                self.builder.chunk_mut().write_basic_op(
                     OpCode::Pop,
                     OpDebug::new(expr.operator.source_span(), outer_span),
                 );
                 self.compile_expr(*expr.right);
-                self.chunk.patch_jump_op_to_here(jump_to_after);
+                self.builder
+                    .chunk_mut()
+                    .patch_jump_op_to_here(jump_to_after);
                 return;
             }
             BinaryOperator::Plus => OpCode::Add,
@@ -301,7 +331,7 @@ impl Compiler {
         self.compile_expr(*expr.left);
         self.compile_expr(*expr.right);
 
-        self.chunk.write_basic_op(
+        self.builder.chunk_mut().write_basic_op(
             op_code,
             OpDebug::new(expr.operator.source_span(), outer_span),
         );
@@ -312,7 +342,8 @@ impl Compiler {
     fn end_scope(&mut self, ending_span: SourceSpan) {
         let locals_to_remove = self.iter_locals_from_current_scope().count();
         for _ in 0..locals_to_remove {
-            self.chunk
+            self.builder
+                .chunk_mut()
                 .write_basic_op(OpCode::Pop, OpDebug::single(ending_span));
             self.locals.pop();
         }

@@ -2,6 +2,7 @@
 
 pub mod ast;
 mod backtrace;
+mod fixed_arr;
 mod fixed_que;
 mod keywords;
 mod parser;

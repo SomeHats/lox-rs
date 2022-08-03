@@ -1,4 +1,8 @@
-use std::{fmt::Debug, mem::MaybeUninit};
+use std::{
+    fmt::Debug,
+    mem::MaybeUninit,
+    ops::{Index, IndexMut},
+};
 
 #[derive(Debug)]
 pub struct FixedArr<T: Debug, const N: usize> {
@@ -12,12 +16,6 @@ impl<T: Debug, const N: usize> FixedArr<T, N> {
             arr: unsafe { MaybeUninit::uninit().assume_init() },
         }
     }
-    pub fn capacity(&self) -> usize {
-        N
-    }
-    pub fn len(&self) -> usize {
-        self.len
-    }
     #[must_use]
     pub fn push(&mut self, value: T) -> Option<&mut T> {
         if self.len < N {
@@ -29,7 +27,7 @@ impl<T: Debug, const N: usize> FixedArr<T, N> {
         }
     }
     #[must_use]
-    pub fn pop(&mut self) -> Option<T> {
+    pub fn _pop(&mut self) -> Option<T> {
         if self.len > 0 {
             self.len -= 1;
             Some(unsafe { self.arr[self.len].assume_init_read() })
@@ -37,11 +35,42 @@ impl<T: Debug, const N: usize> FixedArr<T, N> {
             None
         }
     }
+    pub fn get(&self, index: usize) -> Option<&T> {
+        if index < self.len {
+            Some(unsafe { self.arr[index].assume_init_ref() })
+        } else {
+            None
+        }
+    }
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        if index < self.len {
+            Some(unsafe { self.arr[index].assume_init_mut() })
+        } else {
+            None
+        }
+    }
+    pub fn _last(&self) -> Option<&T> {
+        self.get(self.len.saturating_sub(1))
+    }
+    pub fn _last_mut(&mut self) -> Option<&mut T> {
+        self.get_mut(self.len.saturating_sub(1))
+    }
 }
 impl<T: Debug, const N: usize> Drop for FixedArr<T, N> {
     fn drop(&mut self) {
         for i in 0..self.len {
             unsafe { self.arr[i].assume_init_drop() }
         }
+    }
+}
+impl<T: Debug, const N: usize> Index<usize> for FixedArr<T, N> {
+    type Output = T;
+    fn index(&self, index: usize) -> &Self::Output {
+        self.get(index).unwrap()
+    }
+}
+impl<T: Debug, const N: usize> IndexMut<usize> for FixedArr<T, N> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        self.get_mut(index).unwrap()
     }
 }

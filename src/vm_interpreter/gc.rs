@@ -98,6 +98,8 @@ impl<T: Trace> GcBox<T> {
             allocated
         })
     }
+}
+impl<T: Trace + ?Sized> GcBox<T> {
     fn value(&self) -> &T {
         &self.value
     }
@@ -109,13 +111,13 @@ impl<T: Trace> GcBox<T> {
         self.root_count.set(roots);
         if roots == 1 {
             if cfg!(feature = "debug_gc_roots") {
-                println!("[gc] Rooted: {:?} at:", self.value,);
+                println!("[gc] Rooted: {:?} at:", &self.value);
                 minitrace();
             }
         } else if cfg!(feature = "debug_gc_roots") {
             println!(
                 "[gc] Root count for {:?} increased to {} at:",
-                self.value, roots,
+                &self.value, roots,
             );
             minitrace()
         }
@@ -126,13 +128,13 @@ impl<T: Trace> GcBox<T> {
         self.root_count.set(roots);
         if roots == 0 {
             if cfg!(feature = "debug_gc_roots") {
-                println!("[gc] un-rooted: {:?} at:", self.value,);
+                println!("[gc] un-rooted: {:?} at:", &self.value);
                 minitrace();
             }
         } else if cfg!(feature = "debug_gc_roots") {
             println!(
                 "[gc] Root count for {:?} decreased to {} at:",
-                self.value, roots,
+                &self.value, roots,
             );
             minitrace()
         }
@@ -354,11 +356,40 @@ impl<T: Trace> Trace for Vec<T> {
         }
     });
 }
+impl<K: Trace, V: Trace> Trace for HashMap<K, V> {
+    custom_trace_impl!(|this| {
+        for (key, value) in this {
+            mark(key);
+            mark(value);
+        }
+    });
+}
 
 pub mod gc_stats {
     use super::*;
 
     pub fn total_root_count() -> usize {
         GC_STATE.with(|state| state.iter_boxes().map(|boxed| boxed.root_count.get()).sum())
+    }
+
+    pub fn assert_no_outstanding_roots() {
+        GC_STATE.with(|state| {
+            let mut did_fail = false;
+            for boxed in state
+                .iter_boxes()
+                .filter(|boxed| boxed.root_count.get() != 0)
+            {
+                println!(
+                    "[gc] LEAK: {:?} has {} root(s)",
+                    boxed.value(),
+                    boxed.root_count.get()
+                );
+                did_fail = true
+            }
+
+            if did_fail {
+                panic!("[gc] gc did not expect any outstanding roots");
+            }
+        })
     }
 }

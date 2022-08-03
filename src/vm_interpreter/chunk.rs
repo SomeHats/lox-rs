@@ -1,5 +1,5 @@
 use super::gc::{GcString, Trace};
-use crate::{custom_trace_impl, SourceReference, SourceSpan};
+use crate::{custom_trace_impl, empty_trace_impl, SourceReference, SourceSpan};
 use miette::Diagnostic;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use ordered_float::OrderedFloat;
@@ -22,6 +22,10 @@ impl Display for ConstantAddress {
         write!(f, "@{}", self.0)
     }
 }
+impl Trace for ConstantAddress {
+    empty_trace_impl!();
+}
+
 #[derive(Debug)]
 #[must_use]
 pub struct JumpPatchHandle(usize);
@@ -228,11 +232,11 @@ impl Chunk {
     pub fn read_constant_value(
         &self,
         offset: usize,
-    ) -> Result<(usize, &ConstantValue), CodeReadError> {
+    ) -> Result<(usize, ConstantValue), CodeReadError> {
         let (offset, address) = self.read_constant_address(offset)?;
-        Ok((offset, self.get_constant_value(address)?))
+        Ok((offset, self.get_constant_value(address)?.clone()))
     }
-    pub fn read_global_name(&self, offset: usize) -> Result<(usize, &GcString), CodeReadError> {
+    pub fn read_global_name(&self, offset: usize) -> Result<(usize, GcString), CodeReadError> {
         let (offset, name) = self.read_constant_value(offset)?;
         match name {
             ConstantValue::String(name) => Ok((offset, name)),
@@ -246,6 +250,7 @@ impl Chunk {
 impl Trace for Chunk {
     custom_trace_impl!(|this| {
         mark(&this.constants);
+        mark(&this.constant_indexes);
     });
 }
 

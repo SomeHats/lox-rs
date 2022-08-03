@@ -72,12 +72,13 @@ fn run_test(path: &Path, is_treewalk: bool) -> Result<Outcome> {
     let result = run_test_for_real(path, is_treewalk);
 
     if !is_treewalk {
-        use vm_interpreter::gc_stats::*;
-        assert_eq!(
-            total_root_count(),
-            0,
-            "GC total outstanding root count must be zero"
-        )
+        vm_interpreter::gc_stats::assert_no_outstanding_roots();
+        // use vm_interpreter::gc_stats::*;
+        // assert_eq!(
+        //     total_root_count(),
+        //     0,
+        //     "GC total outstanding root count must be zero"
+        // )
     }
 
     result
@@ -209,7 +210,7 @@ fn run_test_for_real(path: &Path, is_treewalk: bool) -> Result<Outcome> {
     } else {
         use vm_interpreter::*;
         let mut vm = Vm::new(&mut output_writer);
-        let compiled = match Compiler::compile(program) {
+        let compiled = match Compiler::compile_program(program) {
             Ok(compiled) => compiled,
             Err(errors) => {
                 for actual_error in errors.errors {
@@ -238,7 +239,7 @@ fn run_test_for_real(path: &Path, is_treewalk: bool) -> Result<Outcome> {
                 }
             }
         };
-        if let Err(err) = vm.run(compiled) {
+        if let Err(err) = vm.run_script(compiled) {
             if let Err(err) = match_errors(err, &expected_runtime_error, &test_source) {
                 return Ok(Outcome::Failed { msg: Some(err) });
             }

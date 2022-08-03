@@ -1,5 +1,5 @@
 use super::{
-    chunk::{Chunk, ConstantValue, OpCode, OpDebug},
+    chunk::{ConstantValue, OpCode, OpDebug},
     function::{FunctionBuider, FunctionObj},
     gc::GcString,
 };
@@ -55,11 +55,7 @@ impl Compiler {
         let mut compiler = Self {
             builder: FunctionBuider::new_script(source_reference.clone()),
             source_reference,
-            locals: vec![Local::new(Identifier {
-                source_span: 0.into(),
-                name: "".to_string(),
-                id: UniqueId::new(),
-            })],
+            locals: vec![],
             scope_depth: 0,
             errors: Vec::new(),
         };

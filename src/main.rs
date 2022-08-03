@@ -8,7 +8,7 @@ use rustyline::error::ReadlineError;
 
 use lox_rs::{
     ast::Program,
-    vm_interpreter::{Compiler, Vm},
+    vm_interpreter::{disassembler, gc_stats, Compiler, Vm},
     Interpreter, Parser, ParserOpts, PreparedProgram, Scanner, SourceReference,
 };
 
@@ -32,8 +32,8 @@ fn main() -> Result<()> {
                 finish_args(args);
                 let (path, source) = read_source_file(&file)?;
                 let program = parse_or_exit(path, &source, ParserOpts::default());
-                let chunk = Compiler::compile(program)?;
-                chunk.disassemble(&file);
+                let script = Compiler::compile_program(program)?;
+                disassembler::disassemble(&script);
                 return Ok(());
             }
         }
@@ -44,6 +44,8 @@ fn main() -> Result<()> {
         finish_args(args);
         run_prompt(use_old)?;
     }
+
+    gc_stats::assert_no_outstanding_roots();
 
     Ok(())
 }
@@ -148,12 +150,14 @@ fn run_file(file_name: String, use_old: bool) -> Result<()> {
             }
         }
     } else {
-        let mut vm = Vm::new(&mut stdout);
-        if did_have_error {
-            std::process::exit(70);
-        } else {
-            let compiled = Compiler::compile(program)?;
-            vm.run(compiled)?;
+        {
+            let mut vm = Vm::new(&mut stdout);
+            if did_have_error {
+                std::process::exit(70);
+            } else {
+                let compiled = Compiler::compile_program(program)?;
+                vm.run_script(compiled)?;
+            }
         }
     }
 
@@ -208,9 +212,9 @@ fn run_prompt(use_old: bool) -> Result<()> {
             if did_have_error {
                 None
             } else {
-                match Compiler::compile(program) {
-                    Ok(chunk) => Some(
-                        vm.run(chunk)
+                match Compiler::compile_program(program) {
+                    Ok(script) => Some(
+                        vm.run_script(script)
                             .map(|result| format!("{:?}", result))
                             .map_err(Report::new),
                     ),

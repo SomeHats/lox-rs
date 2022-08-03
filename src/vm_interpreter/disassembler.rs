@@ -1,7 +1,5 @@
-use crate::ast::Fun;
-
 use super::{
-    chunk::{Chunk, CodeReadError, ConstantValue, OpCode, OpDebug},
+    chunk::{CodeReadError, ConstantValue, OpCode, OpDebug},
     function::FunctionObj,
 };
 use colored::{ColoredString, Colorize};
@@ -202,6 +200,10 @@ fn get_formatted_line(source: &str, op_debug: &OpDebug) -> String {
                 }
             }
         }
+    }
+
+    if line_end_idx == 0 {
+        line_end_idx = source.len();
     }
 
     format!(

@@ -82,6 +82,9 @@ impl FunctionObj {
     pub fn chunk(&self) -> &Chunk {
         &self.0.chunk
     }
+    pub fn is_script(&self) -> bool {
+        matches!(self.0.kind, FunctionKind::Script)
+    }
 }
 impl Trace for FunctionObj {
     custom_trace_impl!(|fun| { mark(&fun.0) });

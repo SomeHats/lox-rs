@@ -4,10 +4,8 @@ use std::{fmt::Display, str::FromStr};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum SymbolParseError {
-    #[error("Symbol parse error at {0}")]
-    UnexpectedCharacter(String),
-}
+#[error("Cannot parse '{0}'")]
+pub struct SymbolParseError(String);
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Symbol(Vec<SymbolPart>);
@@ -124,15 +122,15 @@ fn advance(symbol: &mut &str) -> char {
 fn peek(symbol: &str) -> char {
     symbol.chars().next().unwrap_or('\0')
 }
-fn consume(symbol: &mut &str, expected: char) -> Result<(), SymbolParseError> {
+fn consume(symbol: &mut &str, expected: char) -> Result<(), ()> {
     if expected == peek(symbol) {
         advance(symbol);
         Ok(())
     } else {
-        Err(SymbolParseError::UnexpectedCharacter(symbol.to_string()))
+        Err(())
     }
 }
-fn parse_symbol_inner(symbol: &mut &str) -> Result<Symbol, SymbolParseError> {
+fn parse_symbol_inner(symbol: &mut &str) -> Result<Symbol, ()> {
     let mut parts = vec![];
     loop {
         match peek(symbol) {
@@ -186,6 +184,20 @@ fn parse_symbol_inner(symbol: &mut &str) -> Result<Symbol, SymbolParseError> {
                 loop {
                     match peek(symbol) {
                         '\0' | ' ' | ':' | '>' | ']' => break,
+                        '*' => {
+                            advance(symbol);
+                            part_name.push('*');
+                            if symbol.starts_with("mut ") {
+                                consume(symbol, 'm')?;
+                                part_name.push('m');
+                                consume(symbol, 'u')?;
+                                part_name.push('u');
+                                consume(symbol, 't')?;
+                                part_name.push('t');
+                                consume(symbol, ' ')?;
+                                part_name.push(' ');
+                            }
+                        }
                         '<' => {
                             advance(symbol);
                             let mut generic_parts = vec![];
@@ -229,7 +241,7 @@ impl FromStr for Symbol {
     type Err = SymbolParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut symbol = s;
-        parse_symbol_inner(&mut symbol)
+        parse_symbol_inner(&mut symbol).map_err(|_| SymbolParseError(s.to_string()))
     }
 }
 
@@ -309,6 +321,7 @@ mod tests {
         roundtrip("<core::panic::unwind_safe::AssertUnwindSafe<F> as core::ops::function::FnOnce<()>>::call_once::h13d5c93c56fb4da5");
         roundtrip("core::ops::function::impls::<impl core::ops::function::FnMut<A> for &F>::call_mut::hc83c01df6275bb60");
         roundtrip("core::ptr::drop_in_place<[lox_rs::vm_interpreter::chunk::ConstantValue]>::h6001b125d581d982");
-        roundtrip("lox_rs::vm_interpreter::disassembler::<impl lox_rs::vm_interpreter::chunk::Chunk>::disassemble_instruction_at::hce72765a1d4ebcc6")
+        roundtrip("lox_rs::vm_interpreter::disassembler::<impl lox_rs::vm_interpreter::chunk::Chunk>::disassemble_instruction_at::hce72765a1d4ebcc6");
+        roundtrip("core::ptr::mut_ptr::<impl *mut T>::drop_in_place::hcb3da453efdb1db5");
     }
 }
